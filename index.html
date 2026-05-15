@@ -201,7 +201,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .font-size-lbl{font-size:.68rem;color:rgba(92,58,30,.5);min-width:22px;text-align:center}
 .bm-btn{background:none;border:1px solid rgba(0,0,0,.12);color:rgba(92,58,30,.45);font-size:.8rem;padding:2px 8px;border-radius:3px;cursor:pointer;transition:all .2s;font-family:'Noto Serif KR',serif}
 .bm-btn:hover{background:rgba(0,0,0,.06)}
-.bm-btn.active{color:#c8860a;border-color:rgba(200,134,10,.4)}
+.bm-btn.active{color:#c8860a;border-color:rgba(200,134,10,.5);background:rgba(200,134,10,.1);font-weight:600}
 
 
 /* AI 요약 결과 스타일 (Summary Result) */
@@ -569,8 +569,8 @@ var currentFontSize = 16;
 
 function applyFontSize(size) {
   currentFontSize = Math.max(11, Math.min(26, size));
-  var body = document.getElementById('pg-body');
-  if (body) body.style.fontSize = currentFontSize + 'px';
+  var ta = document.getElementById('memo-ta');
+  if (ta) ta.style.fontSize = currentFontSize + 'px';
   document.getElementById('font-size-lbl').textContent = currentFontSize;
   if (memoName) lsSet('fs_' + memoName, currentFontSize);
 }
@@ -588,9 +588,11 @@ function updateBookmarkBtn() {
   var saved = lsGet(bmKey(memoName), '');
   if (saved !== '') {
     btn.classList.add('active');
-    btn.title = '북마크로 이동 (다시 클릭하면 삭제)';
+    btn.textContent = '🔖 저장됨 — 이동';
+    btn.title = '클릭하면 북마크 위치로 이동 후 삭제';
   } else {
     btn.classList.remove('active');
+    btn.textContent = '🔖 북마크';
     btn.title = '현재 위치에 북마크 저장';
   }
 }
@@ -600,16 +602,15 @@ document.getElementById('btn-bookmark').addEventListener('click', function() {
   var body = document.getElementById('pg-body');
   var saved = lsGet(bmKey(memoName), '');
   if (saved !== '') {
-    // 북마크 위치로 이동 후 재클릭 시 삭제
-    if (body) body.scrollTop = parseFloat(saved);
-    lsSet(bmKey(memoName), '');
-    updateBookmarkBtn();
+    // 북마크 위치로 이동 (북마크는 유지)
+    if (body) { body.scrollTop = parseFloat(saved); body.style.scrollBehavior = 'smooth'; }
+    showMemoSt('🔖 북마크 위치로 이동');
   } else {
     // 현재 위치 저장
     var pos = body ? body.scrollTop : 0;
     lsSet(bmKey(memoName), pos);
     updateBookmarkBtn();
-    showMemoSt('🔖 북마크 저장됨');
+    showMemoSt('🔖 북마크 저장됨 (다시 누르면 이동)');
   }
 });
 
