@@ -72,14 +72,20 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .shelf-board{height:20px;background:linear-gradient(180deg,#9a6b40,#7a4a22 30%,#5c3317 70%,#3d1f0c);border-radius:3px 3px 1px 1px;box-shadow:0 5px 15px rgba(0,0,0,.7),inset 0 2px 4px rgba(255,255,255,.08)}
 
 /* BOOK SPINE */
-.book-wrap{position:relative;cursor:pointer;animation:bookIn .5s cubic-bezier(.34,1.56,.64,1) both;opacity:0;perspective:600px;perspective-origin:50% 80%}
+.books-row{display:flex;align-items:flex-end;flex-wrap:wrap;padding:2rem 1.5rem 0;min-height:310px;gap:3px;perspective:900px;perspective-origin:50% 10%}
+.book-wrap{position:relative;cursor:pointer;animation:bookIn .5s cubic-bezier(.34,1.56,.64,1) both;opacity:0}
 @keyframes bookIn{from{opacity:0;transform:translateY(40px) scale(.85)}to{opacity:1;transform:none}}
-.book-3d{position:relative;transform-style:preserve-3d;transform:rotateY(-12deg);transition:transform .35s cubic-bezier(.34,1.56,.64,1);transform-origin:bottom center}
-.book-wrap:hover .book-3d{transform:rotateY(-24deg) translateY(-14px)}
-.book-spine{position:relative;display:flex;align-items:center;justify-content:center;border-radius:2px 1px 1px 2px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 6px 20px rgba(0,0,0,.6);backface-visibility:hidden}
-.book-spine::before{content:'';position:absolute;left:0;top:0;width:5px;height:100%;background:linear-gradient(90deg,rgba(255,255,255,.22),transparent)}
-.book-pages{position:absolute;top:0;left:100%;height:100%;width:10px;transform-origin:left center;transform:rotateY(-90deg);background:repeating-linear-gradient(to bottom,#ede8d5 0px,#ede8d5 1px,#cfc8b0 1px,#cfc8b0 2px);border-radius:0 1px 1px 0;box-shadow:inset -3px 0 6px rgba(0,0,0,.15)}
-.book-top{position:absolute;top:0;left:0;right:0;height:8px;transform-origin:top center;transform:rotateX(90deg);background:linear-gradient(to bottom,rgba(255,255,255,.18),rgba(255,255,255,.06));border-radius:2px 2px 0 0}
+.book-3d{position:relative;transform-style:preserve-3d;transform:rotateY(-14deg);transition:transform .38s cubic-bezier(.34,1.56,.64,1);transform-origin:bottom center}
+.book-wrap:hover .book-3d{transform:rotateY(-26deg) translateY(-18px) scale(1.03)}
+.book-spine{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;backface-visibility:hidden;border-radius:2px 0 0 2px;box-shadow:inset 3px 0 6px rgba(0,0,0,.25),inset -2px 0 4px rgba(0,0,0,.15),0 8px 24px rgba(0,0,0,.55)}
+.book-spine::before{content:'';position:absolute;left:0;top:0;width:6px;height:100%;background:rgba(0,0,0,.28);z-index:2}
+.book-spine::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 8px,rgba(255,255,255,.04) 30%,rgba(255,255,255,.07) 60%,rgba(0,0,0,.1) 100%);z-index:1}
+.book-front{position:absolute;top:0;left:100%;height:100%;width:14px;transform-origin:left center;transform:rotateY(-90deg);border-radius:0 2px 2px 0;box-shadow:inset -4px 0 8px rgba(0,0,0,.2)}
+.book-pages{position:absolute;top:2px;left:-10px;height:calc(100% - 4px);width:10px;transform-origin:right center;transform:rotateY(90deg);background:repeating-linear-gradient(to bottom,#f0ead8 0px,#f0ead8 1px,#ddd5bb 1px,#ddd5bb 2px);box-shadow:inset 2px 0 4px rgba(0,0,0,.12)}
+.book-top{position:absolute;top:0;left:0;right:0;height:9px;transform-origin:top center;transform:rotateX(90deg);background:linear-gradient(to right,rgba(255,255,255,.25),rgba(255,255,255,.12));border-radius:2px 2px 0 0}
+.spine-band{position:absolute;left:0;right:0;z-index:3}
+.spine-band.thick{height:11px;background:rgba(0,0,0,.22);border-top:1px solid rgba(255,255,255,.12);border-bottom:1px solid rgba(0,0,0,.2)}
+.spine-band.gold{height:3px;background:linear-gradient(90deg,rgba(200,160,40,.2),rgba(255,210,60,.7),rgba(200,160,40,.2));box-shadow:0 0 4px rgba(255,200,40,.4)}
 .spine-edge{position:absolute;left:10%;right:10%;height:1px;background:rgba(255,255,255,.12)}
 .spine-edge.top{top:6px}.spine-edge.bottom{bottom:6px}
 .spine-title{writing-mode:vertical-lr;text-orientation:mixed;font-size:12px;font-family:'Noto Serif KR',serif;color:rgba(255,255,255,.88);font-weight:400;letter-spacing:.06em;text-shadow:0 1px 4px rgba(0,0,0,.9);max-height:80%;overflow:hidden;padding:6px 0;line-height:1.1;z-index:1;word-break:break-all}
@@ -442,7 +448,13 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 // ═══════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════
-var COLORS = ['#7a2828','#224a3f','#2a3f6e','#4a2e12','#4a2060','#163828','#6e2e1e','#1e3858','#382858','#581e3a','#1e4a28','#4a3810','#2a4a20','#582828','#184050'];
+var COLORS = [
+  '#c0392b','#e67e22','#d4a017','#27ae60','#2471a3','#7d3c98',
+  '#a93226','#ca6f1e','#1e8449','#1a5276','#6c3483','#117a65',
+  '#b03a2e','#d35400','#1f618d','#196f3d','#5b2c6f','#0e6655',
+  '#922b21','#a04000','#1a5276','#145a32','#4a235a','#0b5345',
+  '#7b241c','#6e2f1a','#1b4f72','#0a3d2f','#4d1a6b','#784212'
+];
 var ICONS  = {txt:'📝',md:'📋',js:'⚙️',json:'🗂️',css:'🎨',html:'🌐',py:'🐍',java:'☕',ts:'📘',jsx:'⚛️',tsx:'⚛️',xml:'📄',csv:'📊',log:'📃',pdf:'📕',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',gif:'🎞️',webp:'🖼️',svg:'✏️'};
 var EXT    = ['txt','md','text','js','json','css','html','py','java','ts','jsx','tsx','xml','csv','log','pdf','png','jpg','jpeg','gif','webp','svg'];
 var MIME   = {txt:'text/plain',md:'text/markdown',js:'text/javascript',json:'application/json',css:'text/css',html:'text/html',py:'text/x-python',pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml'};
@@ -923,6 +935,13 @@ function renderShelf(files) {
   }
 }
 
+function lightenColor(hex, amt) {
+  var r = Math.min(255, parseInt(hex.slice(1,3),16) + Math.round(255*amt));
+  var g = Math.min(255, parseInt(hex.slice(3,5),16) + Math.round(255*amt));
+  var b = Math.min(255, parseInt(hex.slice(5,7),16) + Math.round(255*amt));
+  return '#'+[r,g,b].map(function(n){return n.toString(16).padStart(2,'0');}).join('');
+}
+
 function makeBookEl(fd, color, h, w, delay) {
   var wrap = document.createElement('div');
   wrap.className = 'book-wrap';
@@ -932,34 +951,61 @@ function makeBookEl(fd, color, h, w, delay) {
   var book3d = document.createElement('div');
   book3d.className = 'book-3d';
 
+  // — 척추면 (spine)
   var spine = document.createElement('div');
   spine.className = 'book-spine';
   spine.style.cssText = 'width:' + w + 'px;height:' + h + 'px;background:' + color;
 
-  ['top','bottom'].forEach(function(p) {
-    var e = document.createElement('div'); e.className = 'spine-edge ' + p; spine.appendChild(e);
+  // 장식 밴드 (두꺼운 띠 + 골드 라인) — 파일명 해시 기반
+  var seed = fd.name.split('').reduce(function(s,c){return s+c.charCodeAt(0);},0);
+  var bandStyle = seed % 3; // 0: 2밴드, 1: 3밴드, 2: 골드라인
+  var positions = bandStyle === 1
+    ? [Math.round(h*0.15), Math.round(h*0.5), Math.round(h*0.82)]
+    : [Math.round(h*0.15), Math.round(h*0.82)];
+  positions.forEach(function(top) {
+    var b = document.createElement('div');
+    b.className = 'spine-band thick';
+    b.style.top = top + 'px';
+    spine.appendChild(b);
+    if (bandStyle === 2 || seed % 4 === 0) {
+      var g = document.createElement('div');
+      g.className = 'spine-band gold';
+      g.style.top = (top + 4) + 'px';
+      spine.appendChild(g);
+    }
   });
+
+  // 제목
   var t = document.createElement('div'); t.className = 'spine-title';
   t.textContent = fd.name.replace(/\.[^.]+$/, ''); spine.appendChild(t);
 
+  // 진행바
   var sp = document.createElement('div'); sp.className = 'spine-progress';
   var sf = document.createElement('div'); sf.className = 'spine-progress-fill';
   sf.style.width = lsGet(pKey(fd.name) + 'p', '0') + '%';
   sp.appendChild(sf); spine.appendChild(sp);
 
+  // — 앞면 (front cover edge)
+  var front = document.createElement('div');
+  front.className = 'book-front';
+  front.style.cssText = 'height:' + h + 'px;background:' + lightenColor(color, 0.18);
+
+  // — 페이지 옆면
   var pages = document.createElement('div');
   pages.className = 'book-pages';
-  pages.style.height = h + 'px';
+  pages.style.height = (h - 4) + 'px';
 
+  // — 상단면
   var topFace = document.createElement('div');
   topFace.className = 'book-top';
   topFace.style.width = w + 'px';
 
-  book3d.appendChild(spine);
   book3d.appendChild(pages);
+  book3d.appendChild(spine);
+  book3d.appendChild(front);
   book3d.appendChild(topFace);
 
-  var tip   = document.createElement('div'); tip.className = 'book-tooltip';   tip.textContent = fd.name;
+  var tip   = document.createElement('div'); tip.className = 'book-tooltip'; tip.textContent = fd.name;
   var badge = document.createElement('div'); badge.className = 'spine-pct-badge'; badge.textContent = lsGet(pKey(fd.name) + 'p', '0') + '%';
 
   wrap.appendChild(book3d); wrap.appendChild(tip); wrap.appendChild(badge);
