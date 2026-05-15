@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey, { apiVersion: 'v1beta' });
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
     const model = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: { temperature: 0.5, maxOutputTokens: 1024 }

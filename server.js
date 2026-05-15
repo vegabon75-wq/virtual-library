@@ -62,7 +62,7 @@ app.post('/api/summarize', async (req, res) => {
     const genAI = new GoogleGenerativeAI(apiKey, { apiVersion: 'v1beta' });
 
     // .env 의 GEMINI_MODEL 값 우선, 없으면 기본 모델 사용
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
     const model = genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
@@ -99,7 +99,7 @@ app.get('*', (req, res) => {
 // ─────────────────────────────────────────
 app.listen(PORT, () => {
   const apiKey   = process.env.VITE_GEMINI_API_KEY;
-  const model    = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
+  const model    = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
   console.log('\n🕯️  나의 가상 서재 서버');
   console.log('─────────────────────────────');
   console.log(`   http://localhost:${PORT}`);
