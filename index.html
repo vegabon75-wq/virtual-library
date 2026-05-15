@@ -72,12 +72,14 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .shelf-board{height:20px;background:linear-gradient(180deg,#9a6b40,#7a4a22 30%,#5c3317 70%,#3d1f0c);border-radius:3px 3px 1px 1px;box-shadow:0 5px 15px rgba(0,0,0,.7),inset 0 2px 4px rgba(255,255,255,.08)}
 
 /* BOOK SPINE */
-.book-wrap{position:relative;cursor:pointer;animation:bookIn .5s cubic-bezier(.34,1.56,.64,1) both;opacity:0}
+.book-wrap{position:relative;cursor:pointer;animation:bookIn .5s cubic-bezier(.34,1.56,.64,1) both;opacity:0;perspective:600px;perspective-origin:50% 80%}
 @keyframes bookIn{from{opacity:0;transform:translateY(40px) scale(.85)}to{opacity:1;transform:none}}
-.book-wrap:hover .book-spine{transform:translateY(-14px) scale(1.04);filter:brightness(1.2)}
-.book-spine{position:relative;display:flex;align-items:center;justify-content:center;border-radius:2px 1px 1px 2px;overflow:hidden;transition:transform .35s cubic-bezier(.34,1.56,.64,1),filter .2s;transform-origin:bottom center;box-shadow:3px 0 6px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.06)}
-.book-spine::before{content:'';position:absolute;left:0;top:0;width:4px;height:100%;background:linear-gradient(90deg,rgba(255,255,255,.18),transparent)}
-.book-spine::after{content:'';position:absolute;right:0;top:0;width:5px;height:100%;background:linear-gradient(90deg,transparent,rgba(0,0,0,.45))}
+.book-3d{position:relative;transform-style:preserve-3d;transform:rotateY(-12deg);transition:transform .35s cubic-bezier(.34,1.56,.64,1);transform-origin:bottom center}
+.book-wrap:hover .book-3d{transform:rotateY(-24deg) translateY(-14px)}
+.book-spine{position:relative;display:flex;align-items:center;justify-content:center;border-radius:2px 1px 1px 2px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 6px 20px rgba(0,0,0,.6);backface-visibility:hidden}
+.book-spine::before{content:'';position:absolute;left:0;top:0;width:5px;height:100%;background:linear-gradient(90deg,rgba(255,255,255,.22),transparent)}
+.book-pages{position:absolute;top:0;left:100%;height:100%;width:10px;transform-origin:left center;transform:rotateY(-90deg);background:repeating-linear-gradient(to bottom,#ede8d5 0px,#ede8d5 1px,#cfc8b0 1px,#cfc8b0 2px);border-radius:0 1px 1px 0;box-shadow:inset -3px 0 6px rgba(0,0,0,.15)}
+.book-top{position:absolute;top:0;left:0;right:0;height:8px;transform-origin:top center;transform:rotateX(90deg);background:linear-gradient(to bottom,rgba(255,255,255,.18),rgba(255,255,255,.06));border-radius:2px 2px 0 0}
 .spine-edge{position:absolute;left:10%;right:10%;height:1px;background:rgba(255,255,255,.12)}
 .spine-edge.top{top:6px}.spine-edge.bottom{bottom:6px}
 .spine-title{writing-mode:vertical-lr;text-orientation:mixed;font-size:12px;font-family:'Noto Serif KR',serif;color:rgba(255,255,255,.88);font-weight:400;letter-spacing:.06em;text-shadow:0 1px 4px rgba(0,0,0,.9);max-height:80%;overflow:hidden;padding:6px 0;line-height:1.1;z-index:1;word-break:break-all}
@@ -927,6 +929,9 @@ function makeBookEl(fd, color, h, w, delay) {
   wrap.style.animationDelay = delay + 'ms';
   wrap.dataset.f = fd.name;
 
+  var book3d = document.createElement('div');
+  book3d.className = 'book-3d';
+
   var spine = document.createElement('div');
   spine.className = 'book-spine';
   spine.style.cssText = 'width:' + w + 'px;height:' + h + 'px;background:' + color;
@@ -942,10 +947,22 @@ function makeBookEl(fd, color, h, w, delay) {
   sf.style.width = lsGet(pKey(fd.name) + 'p', '0') + '%';
   sp.appendChild(sf); spine.appendChild(sp);
 
+  var pages = document.createElement('div');
+  pages.className = 'book-pages';
+  pages.style.height = h + 'px';
+
+  var topFace = document.createElement('div');
+  topFace.className = 'book-top';
+  topFace.style.width = w + 'px';
+
+  book3d.appendChild(spine);
+  book3d.appendChild(pages);
+  book3d.appendChild(topFace);
+
   var tip   = document.createElement('div'); tip.className = 'book-tooltip';   tip.textContent = fd.name;
   var badge = document.createElement('div'); badge.className = 'spine-pct-badge'; badge.textContent = lsGet(pKey(fd.name) + 'p', '0') + '%';
 
-  wrap.appendChild(spine); wrap.appendChild(tip); wrap.appendChild(badge);
+  wrap.appendChild(book3d); wrap.appendChild(tip); wrap.appendChild(badge);
   wrap.addEventListener('click', function() { openBook(fd, color); });
   return wrap;
 }
