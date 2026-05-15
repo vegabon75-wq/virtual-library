@@ -27,7 +27,7 @@ app.get('/api/config', (req, res) => {
 // ─────────────────────────────────────────
 // API: Gemini 요약 프록시 — REST v1 직접 호출
 // ─────────────────────────────────────────
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 app.post('/api/summarize', async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;

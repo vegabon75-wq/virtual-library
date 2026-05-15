@@ -1,6 +1,6 @@
 'use strict';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
