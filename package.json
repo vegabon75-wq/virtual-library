@@ -1,0 +1,25 @@
+{
+  "name": "virtual-library",
+  "version": "1.0.0",
+  "description": "나의 가상 서재 — 파일을 책으로 만드는 웹 앱",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "keywords": [
+    "virtual-library",
+    "book",
+    "reader"
+  ],
+  "author": "",
+  "license": "MIT"
+}
