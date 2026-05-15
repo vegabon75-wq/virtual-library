@@ -193,6 +193,15 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .mbtn.local{border-color:rgba(80,160,100,.4);color:rgba(80,160,100,.85)}
 .mbtn.local:hover{background:rgba(80,160,100,.1)}
 .mbtn.local:disabled{opacity:.4;cursor:not-allowed}
+.mbtn.export{border-color:rgba(160,120,60,.4);color:rgba(200,160,80,.85)}
+.mbtn.export:hover{background:rgba(160,120,60,.1)}
+.font-ctrl{display:flex;align-items:center;gap:2px}
+.font-btn{background:none;border:1px solid rgba(0,0,0,.12);color:var(--text-warm);font-size:.7rem;width:22px;height:22px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background .2s;flex-shrink:0}
+.font-btn:hover{background:rgba(0,0,0,.07)}
+.font-size-lbl{font-size:.68rem;color:rgba(92,58,30,.5);min-width:22px;text-align:center}
+.bm-btn{background:none;border:1px solid rgba(0,0,0,.12);color:rgba(92,58,30,.45);font-size:.8rem;padding:2px 8px;border-radius:3px;cursor:pointer;transition:all .2s;font-family:'Noto Serif KR',serif}
+.bm-btn:hover{background:rgba(0,0,0,.06)}
+.bm-btn.active{color:#c8860a;border-color:rgba(200,134,10,.4)}
 
 
 /* AI 요약 결과 스타일 (Summary Result) */
@@ -351,10 +360,21 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
             <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
             <div class="page-header">
               <div class="page-chapter" id="pg-title">—</div>
-              <span class="prog-pct" id="prog-pct">0%</span>
+              <div style="display:flex;align-items:center;gap:.5rem">
+                <div class="font-ctrl">
+                  <button class="font-btn" id="btn-font-down">A-</button>
+                  <span class="font-size-lbl" id="font-size-lbl">16</span>
+                  <button class="font-btn" id="btn-font-up">A+</button>
+                </div>
+                <span class="prog-pct" id="prog-pct">0%</span>
+              </div>
             </div>
             <div class="page-body" id="pg-body"></div>
-            <div class="page-footer"><span class="page-num">i</span></div>
+            <div class="page-footer">
+              <button class="bm-btn" id="btn-bookmark">🔖 북마크</button>
+              <span class="page-num">i</span>
+              <span style="width:60px"></span>
+            </div>
           </div>
           <div class="page page-right">
             <div class="prog-track" style="background:transparent"></div>
@@ -372,7 +392,10 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
             <div class="memo-footer">
               <button class="mbtn" id="memo-save">&#x1F4BE; 저장</button>
               <span class="page-num">ii</span>
-              <button class="mbtn del" id="memo-del">&#x1F5D1; 지우기</button>
+              <div style="display:flex;gap:.4rem">
+                <button class="mbtn export" id="memo-export">&#x1F4E4; 내보내기</button>
+                <button class="mbtn del" id="memo-del">&#x1F5D1; 지우기</button>
+              </div>
             </div>
           </div>
         </div>
@@ -538,6 +561,73 @@ document.getElementById('memo-ta').addEventListener('input', function() {
 });
 document.getElementById('memo-save').addEventListener('click', saveMemo);
 document.getElementById('memo-del').addEventListener('click', delMemo);
+
+// ═══════════════════════════════════════
+// 읽기 편의 — 글자 크기 조절
+// ═══════════════════════════════════════
+var currentFontSize = 16;
+
+function applyFontSize(size) {
+  currentFontSize = Math.max(11, Math.min(26, size));
+  var body = document.getElementById('pg-body');
+  if (body) body.style.fontSize = currentFontSize + 'px';
+  document.getElementById('font-size-lbl').textContent = currentFontSize;
+  if (memoName) lsSet('fs_' + memoName, currentFontSize);
+}
+
+document.getElementById('btn-font-up').addEventListener('click', function() { applyFontSize(currentFontSize + 1); });
+document.getElementById('btn-font-down').addEventListener('click', function() { applyFontSize(currentFontSize - 1); });
+
+// ═══════════════════════════════════════
+// 읽기 편의 — 북마크
+// ═══════════════════════════════════════
+function bmKey(n) { return 'bm_' + n; }
+
+function updateBookmarkBtn() {
+  var btn = document.getElementById('btn-bookmark');
+  var saved = lsGet(bmKey(memoName), '');
+  if (saved !== '') {
+    btn.classList.add('active');
+    btn.title = '북마크로 이동 (다시 클릭하면 삭제)';
+  } else {
+    btn.classList.remove('active');
+    btn.title = '현재 위치에 북마크 저장';
+  }
+}
+
+document.getElementById('btn-bookmark').addEventListener('click', function() {
+  if (!memoName) return;
+  var body = document.getElementById('pg-body');
+  var saved = lsGet(bmKey(memoName), '');
+  if (saved !== '') {
+    // 북마크 위치로 이동 후 재클릭 시 삭제
+    if (body) body.scrollTop = parseFloat(saved);
+    lsSet(bmKey(memoName), '');
+    updateBookmarkBtn();
+  } else {
+    // 현재 위치 저장
+    var pos = body ? body.scrollTop : 0;
+    lsSet(bmKey(memoName), pos);
+    updateBookmarkBtn();
+    showMemoSt('🔖 북마크 저장됨');
+  }
+});
+
+// ═══════════════════════════════════════
+// 읽기 편의 — 메모 내보내기
+// ═══════════════════════════════════════
+document.getElementById('memo-export').addEventListener('click', function() {
+  var text = document.getElementById('memo-ta').value.trim();
+  if (!text) { showMemoSt('⚠️ 내보낼 메모가 없습니다'); return; }
+  var filename = (memoName || '메모').replace(/\.[^.]+$/, '') + '_메모.txt';
+  var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showMemoSt('📤 내보내기 완료');
+});
 // ═══════════════════════════════════════
 // AI 요약 기능 — 서버 프록시 방식 (AI Summary via Server Proxy)
 // API 키는 서버 .env 에만 존재하며 클라이언트에 노출되지 않음
@@ -882,6 +972,14 @@ async function openBook(fd, color) {
 
   await loadContent(fd);
   loadMemo(fd.name);
+
+  // 저장된 글자 크기 복원
+  var savedFs = parseInt(lsGet('fs_' + fd.name, '16'), 10);
+  applyFontSize(savedFs);
+
+  // 북마크 버튼 상태 복원
+  updateBookmarkBtn();
+
   await animateBookOpen(fd, color);
 }
 
