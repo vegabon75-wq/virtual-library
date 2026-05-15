@@ -35,6 +35,37 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .btn-sm{background:transparent;border:1px solid rgba(139,94,60,.4);color:rgba(245,234,213,.6);padding:.45rem 1.1rem;cursor:pointer;border-radius:3px;font-size:.82rem;font-family:'Noto Serif KR',serif;transition:all .2s}
 .btn-sm:hover{border-color:var(--amber);color:var(--amber-light)}
 
+/* STATS MODAL */
+#stats-modal{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
+#stats-modal.open{opacity:1;visibility:visible}
+.stats-box{background:linear-gradient(160deg,#1a0e06,#110903);border:1px solid rgba(139,94,60,.35);border-radius:6px;padding:2rem 2.5rem;width:min(480px,90vw);max-height:85vh;overflow-y:auto;position:relative}
+.stats-box::-webkit-scrollbar{width:4px}
+.stats-box::-webkit-scrollbar-thumb{background:rgba(92,58,30,.4);border-radius:2px}
+.stats-title{font-family:'Playfair Display',serif;font-size:1.4rem;color:var(--amber-light);margin-bottom:1.5rem;display:flex;align-items:center;gap:.6rem}
+.stats-close{position:absolute;top:1rem;right:1.2rem;background:none;border:none;color:rgba(245,234,213,.4);font-size:1.2rem;cursor:pointer;line-height:1;transition:color .2s}
+.stats-close:hover{color:var(--amber-light)}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+.stat-card{background:rgba(139,94,60,.08);border:1px solid rgba(139,94,60,.2);border-radius:4px;padding:1rem;text-align:center}
+.stat-num{font-family:'Playfair Display',serif;font-size:2rem;color:var(--amber-light);line-height:1}
+.stat-label{font-size:.75rem;color:rgba(245,234,213,.5);margin-top:.3rem;font-family:'Crimson Text',serif;font-style:italic}
+.stats-bar-section{margin-bottom:1.2rem}
+.stats-bar-title{font-size:.8rem;color:rgba(245,234,213,.6);margin-bottom:.5rem;font-family:'Noto Serif KR',serif}
+.stats-bar-wrap{height:10px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden;display:flex}
+.stats-bar-done{background:linear-gradient(90deg,#6aaa6a,#4d8a4d);border-radius:5px 0 0 5px;transition:width .6s ease}
+.stats-bar-prog{background:linear-gradient(90deg,var(--amber),#c07a10);transition:width .6s ease}
+.stats-bar-none{background:rgba(255,255,255,.06)}
+.stats-legend{display:flex;gap:1rem;margin-top:.4rem;flex-wrap:wrap}
+.stats-leg-item{display:flex;align-items:center;gap:.3rem;font-size:.72rem;color:rgba(245,234,213,.5)}
+.stats-leg-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.stats-divider{border:none;border-top:1px solid rgba(139,94,60,.2);margin:1.2rem 0}
+.stats-top-title{font-size:.8rem;color:rgba(245,234,213,.6);margin-bottom:.7rem;font-family:'Noto Serif KR',serif}
+.stats-top-item{display:flex;align-items:center;gap:.7rem;padding:.4rem 0;border-bottom:1px solid rgba(139,94,60,.1)}
+.stats-top-item:last-child{border-bottom:none}
+.stats-top-pct{font-family:'Playfair Display',serif;font-size:.95rem;color:var(--amber-light);min-width:2.5rem;text-align:right}
+.stats-top-name{font-size:.8rem;color:rgba(245,234,213,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.stats-top-bar{height:4px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;width:60px;flex-shrink:0}
+.stats-top-bar-fill{height:100%;background:var(--amber);border-radius:2px;transition:width .5s ease}
+
 /* SHELF */
 .shelf-unit{position:relative}
 .books-row{display:flex;align-items:flex-end;flex-wrap:wrap;padding:2rem 1.5rem 0;min-height:310px;gap:4px}
@@ -267,9 +298,32 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
       <div class="lib-title">&#x1F4DA; 나의 서재</div>
       <div class="lib-folder" id="lib-folder"></div>
     </div>
-    <button class="btn-sm" id="btn-change">&#x1F504; 폴더 변경</button>
+    <div style="display:flex;gap:.5rem">
+      <button class="btn-sm" id="btn-stats">&#x1F4CA; 독서 통계</button>
+      <button class="btn-sm" id="btn-change">&#x1F504; 폴더 변경</button>
+    </div>
   </div>
   <div id="shelf"></div>
+</div>
+
+<div id="stats-modal">
+  <div class="stats-box">
+    <button class="stats-close" id="stats-close">✕</button>
+    <div class="stats-title">📊 독서 통계</div>
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="stats-bar-section">
+      <div class="stats-bar-title">독서 현황</div>
+      <div class="stats-bar-wrap" id="stats-bar"></div>
+      <div class="stats-legend">
+        <div class="stats-leg-item"><div class="stats-leg-dot" style="background:#6aaa6a"></div>완독</div>
+        <div class="stats-leg-item"><div class="stats-leg-dot" style="background:var(--amber)"></div>읽는 중</div>
+        <div class="stats-leg-item"><div class="stats-leg-dot" style="background:rgba(255,255,255,.1)"></div>미시작</div>
+      </div>
+    </div>
+    <hr class="stats-divider">
+    <div class="stats-top-title">📖 최근 읽은 책 (진행률 순)</div>
+    <div id="stats-top-list"></div>
+  </div>
 </div>
 
 <div id="book-modal">
@@ -754,7 +808,10 @@ document.getElementById('btn-change').addEventListener('click', pickFolder);
 // ═══════════════════════════════════════
 function rand(s) { var x = Math.sin(s + 1) * 10000; return x - Math.floor(x); }
 
+var currentFiles = [];
+
 function renderShelf(files) {
+  currentFiles = files;
   var wrap = document.getElementById('shelf'); wrap.innerHTML = '';
   var n = files.length;
   var per = n <= 6 ? n : n <= 14 ? Math.ceil(n / 2) : Math.ceil(n / Math.ceil(n / 12));
@@ -896,6 +953,79 @@ async function renderPDF(file, name) {
     if (wrap) wrap.innerHTML = '<div class="pdf-loading">렌더링 오류: ' + esc(err.message) + '</div>';
   }
 }
+
+// ═══════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════
+function showStats() {
+  var files = currentFiles;
+  var total = files.length;
+  if (!total) return;
+
+  var done = 0, inprog = 0, notStarted = 0, withMemo = 0, sumPct = 0;
+  var progList = [];
+
+  files.forEach(function(fd) {
+    var pct = parseInt(lsGet(pKey(fd.name) + 'p', '0'), 10);
+    var memo = lsGet('mo_' + fd.name, '').trim();
+    sumPct += pct;
+    if (pct >= 100) done++;
+    else if (pct > 0) inprog++;
+    else notStarted++;
+    if (memo.length > 0) withMemo++;
+    if (pct > 0) progList.push({ name: fd.name.replace(/\.[^.]+$/, ''), pct: pct });
+  });
+
+  var avgPct = total ? Math.round(sumPct / total) : 0;
+
+  // 숫자 카드
+  var grid = document.getElementById('stats-grid');
+  grid.innerHTML = [
+    { num: total,      label: '전체 책' },
+    { num: done,       label: '✅ 완독' },
+    { num: inprog,     label: '📖 읽는 중' },
+    { num: withMemo,   label: '📝 메모 있음' },
+    { num: notStarted, label: '📋 미시작' },
+    { num: avgPct + '%', label: '평균 진행률' }
+  ].map(function(c) {
+    return '<div class="stat-card"><div class="stat-num">' + c.num + '</div><div class="stat-label">' + c.label + '</div></div>';
+  }).join('');
+
+  // 진행률 바
+  var bar = document.getElementById('stats-bar');
+  var dPct = total ? (done / total * 100).toFixed(1) : 0;
+  var iPct = total ? (inprog / total * 100).toFixed(1) : 0;
+  var nPct = total ? (notStarted / total * 100).toFixed(1) : 0;
+  bar.innerHTML =
+    '<div class="stats-bar-done" style="width:' + dPct + '%"></div>' +
+    '<div class="stats-bar-prog" style="width:' + iPct + '%"></div>' +
+    '<div class="stats-bar-none" style="width:' + nPct + '%"></div>';
+
+  // 진행률 순 목록
+  progList.sort(function(a, b) { return b.pct - a.pct; });
+  var topList = document.getElementById('stats-top-list');
+  if (progList.length === 0) {
+    topList.innerHTML = '<div style="font-size:.8rem;color:rgba(245,234,213,.35);font-style:italic;padding:.5rem 0">아직 읽은 책이 없습니다</div>';
+  } else {
+    topList.innerHTML = progList.slice(0, 8).map(function(b) {
+      return '<div class="stats-top-item">' +
+        '<div class="stats-top-pct">' + b.pct + '%</div>' +
+        '<div class="stats-top-name">' + b.name + '</div>' +
+        '<div class="stats-top-bar"><div class="stats-top-bar-fill" style="width:' + b.pct + '%"></div></div>' +
+        '</div>';
+    }).join('');
+  }
+
+  document.getElementById('stats-modal').classList.add('open');
+}
+
+document.getElementById('btn-stats').addEventListener('click', showStats);
+document.getElementById('stats-close').addEventListener('click', function() {
+  document.getElementById('stats-modal').classList.remove('open');
+});
+document.getElementById('stats-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
 
 // ═══════════════════════════════════════
 // CLOSE
