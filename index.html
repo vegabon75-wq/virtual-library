@@ -159,6 +159,9 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .mbtn.ai{border-color:rgba(100,140,212,.4);color:rgba(100,140,220,.85)}
 .mbtn.ai:hover{background:rgba(100,140,212,.1)}
 .mbtn.ai:disabled{opacity:.4;cursor:not-allowed}
+.mbtn.local{border-color:rgba(80,160,100,.4);color:rgba(80,160,100,.85)}
+.mbtn.local:hover{background:rgba(80,160,100,.1)}
+.mbtn.local:disabled{opacity:.4;cursor:not-allowed}
 
 
 /* AI 요약 결과 스타일 (Summary Result) */
@@ -304,6 +307,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
             <div class="page-header memo-header">
               <div class="page-chapter">&#x270F;&#xFE0F; &nbsp;나의 메모</div>
               <div style="display:flex;align-items:center;gap:.5rem">
+                <button class="mbtn local" id="btn-local-summary">&#x1F4DD; 빠른 요약</button>
                 <button class="mbtn ai" id="btn-summary">&#x1F916; AI 요약</button>
                 <div class="memo-status" id="memo-st"></div>
               </div>
@@ -561,6 +565,92 @@ function typewriterInsert(textarea, newText, onDone) {
   }
   typeNext();
 }
+
+// 로컬 추출 요약 알고리즘 (Extractive summarization — no API needed)
+function localSummarize(text) {
+  var stopwords = new Set(['이','그','저','것','수','등','및','를','을','가','은','는','에','의','로','와','과','도','에서','으로','하는','있는','하고','하다','있다','이다','위해','때문','통해','대한','대해','않','못','안','더','또','즉','이런','그런','저런','the','a','an','is','are','was','were','in','on','at','to','of','and','or','for','with','that','this','it','be','as','by','from','but','not','are','have','has']);
+
+  // 문장 분리
+  var sentences = text.replace(/\r\n/g, '\n').split(/(?<=[.!?。])\s+|\n{2,}/).map(function(s){ return s.trim(); }).filter(function(s){ return s.length > 20; });
+  if (sentences.length < 2) return null;
+
+  // 단어 빈도 계산
+  var freq = {};
+  sentences.forEach(function(sent) {
+    sent.split(/[\s,.()[\]{}'";:!?]+/).forEach(function(w) {
+      w = w.toLowerCase().trim();
+      if (w.length > 1 && !stopwords.has(w)) freq[w] = (freq[w] || 0) + 1;
+    });
+  });
+
+  // 문장 점수화
+  var scored = sentences.map(function(sent, idx) {
+    var words = sent.split(/[\s,.()[\]{}'";:!?]+/).map(function(w){ return w.toLowerCase().trim(); }).filter(function(w){ return w.length > 1 && !stopwords.has(w); });
+    var score = words.length ? words.reduce(function(s, w){ return s + (freq[w] || 0); }, 0) / words.length : 0;
+    return { sent: sent, score: score, idx: idx };
+  });
+
+  // 핵심 주제: 앞부분에서 가장 점수 높은 문장
+  var firstPart = scored.slice(0, Math.max(3, Math.floor(sentences.length * 0.3))).slice().sort(function(a,b){ return b.score - a.score; });
+  var topic = firstPart[0].sent;
+
+  // 주요 내용: 상위 점수 문장 (위치순)
+  var topN = Math.min(4, Math.max(2, Math.floor(sentences.length * 0.15)));
+  var keyPoints = scored.slice().sort(function(a,b){ return b.score - a.score; }).filter(function(s){ return s.sent !== topic; }).slice(0, topN).sort(function(a,b){ return a.idx - b.idx; });
+
+  // 주요 키워드
+  var keywords = Object.entries(freq).sort(function(a,b){ return b[1]-a[1]; }).slice(0, 6).map(function(e){ return e[0]; });
+
+  var out = '1. 📌 핵심 주제\n' + topic + '\n\n2. 🔑 주요 내용\n';
+  keyPoints.forEach(function(s){ out += '• ' + s.sent + '\n'; });
+  out += '\n3. 💡 주요 키워드\n' + keywords.join(', ');
+  return out;
+}
+
+function doLocalSummary() {
+  var btn = document.getElementById('btn-local-summary');
+  var ta  = document.getElementById('memo-ta');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 분석 중...';
+  showMemoSt('📝 텍스트를 분석하는 중…');
+
+  var content = extractCurrentText();
+  if (!content || content.length < 50) {
+    showMemoSt('⚠️ 요약할 내용이 없습니다');
+    btn.disabled = false;
+    btn.textContent = '📝 빠른 요약';
+    return;
+  }
+
+  var result = localSummarize(content);
+  if (!result) {
+    showMemoSt('⚠️ 요약할 문장이 충분하지 않습니다');
+    btn.disabled = false;
+    btn.textContent = '📝 빠른 요약';
+    return;
+  }
+
+  var existing = ta.value;
+  var separator = existing ? '\n\n' : '';
+  var prefix = separator + '━━━━━━━━━━━━━━━━━━\n📝 빠른 요약 결과\n━━━━━━━━━━━━━━━━━━\n';
+  var full = existing + prefix + result;
+  var idx  = (existing + prefix).length;
+  ta.value = existing + prefix;
+  ta.scrollTop = ta.scrollHeight;
+
+  function typeNext() {
+    if (idx >= full.length) { saveMemo(); showMemoSt('✅ 요약 완료!'); btn.disabled = false; btn.textContent = '📝 빠른 요약'; return; }
+    var chunk = Math.min(3, full.length - idx);
+    ta.value = full.slice(0, idx + chunk);
+    idx += chunk;
+    ta.scrollTop = ta.scrollHeight;
+    setTimeout(typeNext, 12);
+  }
+  typeNext();
+}
+
+document.getElementById('btn-local-summary').addEventListener('click', function() { doLocalSummary(); });
 
 // 실제 AI 요약 실행 함수 (Execute AI Summary)
 async function doAISummary() {
