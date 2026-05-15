@@ -1,16 +1,16 @@
 'use strict';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return res.status(503).json({
-      error: '서버에 GEMINI_API_KEY가 설정되지 않았습니다. Vercel 환경변수를 확인해주세요.'
+      error: '서버에 GROQ_API_KEY가 설정되지 않았습니다. Vercel 환경변수를 확인해주세요.'
     });
   }
 
@@ -29,12 +29,17 @@ module.exports = async function handler(req, res) {
     '**문서 내용**:\n' + content.slice(0, 12000);
 
   try {
-    const resp = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    const resp = await fetch(GROQ_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.5, maxOutputTokens: 1024 }
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1024,
+        temperature: 0.5
       })
     });
 
@@ -45,7 +50,7 @@ module.exports = async function handler(req, res) {
       return res.status(resp.status).json({ error: msg });
     }
 
-    const result = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const result = data.choices?.[0]?.message?.content;
     if (!result) {
       return res.status(500).json({ error: '응답에서 텍스트를 추출할 수 없습니다.' });
     }

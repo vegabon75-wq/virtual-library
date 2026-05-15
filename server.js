@@ -20,21 +20,21 @@ app.use(express.static(path.join(__dirname)));     // 정적 파일 서빙 (Serv
 // 실제 키 값은 절대 클라이언트에 전송하지 않음
 // ─────────────────────────────────────────
 app.get('/api/config', (req, res) => {
-  const hasKey = !!(process.env.GEMINI_API_KEY);
+  const hasKey = !!(process.env.GROQ_API_KEY);
   res.json({ hasKey });
 });
 
 // ─────────────────────────────────────────
-// API: Gemini 요약 프록시 — REST v1 직접 호출
+// API: Groq 요약 프록시
 // ─────────────────────────────────────────
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 app.post('/api/summarize', async (req, res) => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
     return res.status(503).json({
-      error: '서버에 GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.'
+      error: '서버에 GROQ_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.'
     });
   }
 
@@ -54,12 +54,17 @@ app.post('/api/summarize', async (req, res) => {
     '**문서 내용**:\n' + content.slice(0, 12000);
 
   try {
-    const resp = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    const resp = await fetch(GROQ_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.5, maxOutputTokens: 1024 }
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1024,
+        temperature: 0.5
       })
     });
 
@@ -70,7 +75,7 @@ app.post('/api/summarize', async (req, res) => {
       return res.status(resp.status).json({ error: msg });
     }
 
-    const result = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const result = data.choices?.[0]?.message?.content;
     if (!result) {
       return res.status(500).json({ error: '응답에서 텍스트를 추출할 수 없습니다.' });
     }
@@ -94,11 +99,11 @@ app.get('*', (req, res) => {
 // 서버 시작 (Start server)
 // ─────────────────────────────────────────
 app.listen(PORT, () => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   console.log('\n🕯️  나의 가상 서재 서버');
   console.log('─────────────────────────────');
   console.log(`   http://localhost:${PORT}`);
-  console.log(`   Gemini API 키: ${apiKey ? '✅ 설정됨' : '❌ 미설정 (.env 확인 필요)'}`);
-  console.log(`   사용 모델:     gemini-2.0-flash-lite (v1beta)`);
+  console.log(`   Groq API 키:   ${apiKey ? '✅ 설정됨' : '❌ 미설정 (.env 확인 필요)'}`);
+  console.log(`   사용 모델:     llama-3.1-8b-instant (Groq)`);
   console.log('─────────────────────────────\n');
 });
