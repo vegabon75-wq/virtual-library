@@ -27,7 +27,7 @@ app.get('/api/config', (req, res) => {
 // ─────────────────────────────────────────
 // API: Gemini 요약 프록시 — REST v1 직접 호출
 // ─────────────────────────────────────────
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
 
 app.post('/api/summarize', async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -99,6 +99,6 @@ app.listen(PORT, () => {
   console.log('─────────────────────────────');
   console.log(`   http://localhost:${PORT}`);
   console.log(`   Gemini API 키: ${apiKey ? '✅ 설정됨' : '❌ 미설정 (.env 확인 필요)'}`);
-  console.log(`   사용 모델:     gemini-1.5-flash (v1)`);
+  console.log(`   사용 모델:     gemini-2.0-flash-lite (v1beta)`);
   console.log('─────────────────────────────\n');
 });
