@@ -1,16 +1,16 @@
 'use strict';
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Anthropic = require('@anthropic-ai/sdk');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.VITE_GEMINI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return res.status(503).json({
-      error: '서버에 VITE_GEMINI_API_KEY가 설정되지 않았습니다. Vercel 환경변수를 확인해주세요.'
+      error: '서버에 ANTHROPIC_API_KEY가 설정되지 않았습니다. Vercel 환경변수를 확인해주세요.'
     });
   }
 
@@ -29,16 +29,14 @@ module.exports = async function handler(req, res) {
     '**문서 내용**:\n' + content.slice(0, 12000);
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      generationConfig: { temperature: 0.5, maxOutputTokens: 1024 }
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }]
     });
 
-    const genResult = await model.generateContent(prompt);
-    const result    = genResult.response.text();
-
+    const result = message.content[0]?.type === 'text' ? message.content[0].text : null;
     if (!result) {
       return res.status(500).json({ error: '응답에서 텍스트를 추출할 수 없습니다.' });
     }

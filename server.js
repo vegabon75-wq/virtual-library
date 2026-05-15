@@ -20,31 +20,29 @@ app.use(express.static(path.join(__dirname)));     // 정적 파일 서빙 (Serv
 // 실제 키 값은 절대 클라이언트에 전송하지 않음
 // ─────────────────────────────────────────
 app.get('/api/config', (req, res) => {
-  const hasKey = !!(process.env.VITE_GEMINI_API_KEY);
+  const hasKey = !!(process.env.ANTHROPIC_API_KEY);
   res.json({ hasKey });
 });
 
 // ─────────────────────────────────────────
-// API: Gemini 요약 프록시 (Gemini Summary Proxy)
-// 클라이언트는 API 키를 모르고, 서버가 대신 Gemini 호출
+// API: Claude 요약 프록시 (Claude Summary Proxy)
+// 클라이언트는 API 키를 모르고, 서버가 대신 Claude 호출
 // ─────────────────────────────────────────
 app.post('/api/summarize', async (req, res) => {
-  const apiKey = process.env.VITE_GEMINI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
     return res.status(503).json({
-      error: '서버에 VITE_GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.'
+      error: '서버에 ANTHROPIC_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.'
     });
   }
 
   const { content, fileTitle, fileExt } = req.body;
 
-  // 요약할 내용 없음 (No content to summarize)
   if (!content || content.trim().length < 5) {
     return res.status(400).json({ error: '요약할 내용이 없습니다.' });
   }
 
-  // Gemini 프롬프트 구성 (Construct Gemini prompt)
   const prompt =
     '당신은 독서 도우미 AI입니다. 아래 문서 내용을 분석하여 한국어로 핵심 요약을 작성해주세요.\n\n' +
     `**파일명**: ${fileTitle || '문서'} (${fileExt || ''})\n\n` +
@@ -55,25 +53,16 @@ app.post('/api/summarize', async (req, res) => {
     '**문서 내용**:\n' + content.slice(0, 12000);
 
   try {
-    // @google/generative-ai SDK 사용 (Use official Gemini SDK)
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
 
-    // API 키와 v1beta 버전으로 클라이언트 초기화 (Initialize client with API key and v1beta)
-    const genAI = new GoogleGenerativeAI(apiKey);
-
-    // .env 의 GEMINI_MODEL 값 우선, 없으면 기본 모델 사용
-    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      generationConfig: {
-        temperature:     0.5,
-        maxOutputTokens: 1024
-      }
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }]
     });
 
-    // 요약 생성 요청 (Generate summary)
-    const genResult = await model.generateContent(prompt);
-    const result    = genResult.response.text();
+    const result = message.content[0]?.type === 'text' ? message.content[0].text : null;
 
     if (!result) {
       return res.status(500).json({ error: '응답에서 텍스트를 추출할 수 없습니다.' });
@@ -98,12 +87,11 @@ app.get('*', (req, res) => {
 // 서버 시작 (Start server)
 // ─────────────────────────────────────────
 app.listen(PORT, () => {
-  const apiKey   = process.env.VITE_GEMINI_API_KEY;
-  const model    = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   console.log('\n🕯️  나의 가상 서재 서버');
   console.log('─────────────────────────────');
   console.log(`   http://localhost:${PORT}`);
-  console.log(`   Gemini API 키: ${apiKey ? '✅ 설정됨' : '❌ 미설정 (.env 확인 필요)'}`);
-  console.log(`   사용 모델:     ${model}`);
+  console.log(`   Claude API 키: ${apiKey ? '✅ 설정됨' : '❌ 미설정 (.env 확인 필요)'}`);
+  console.log(`   사용 모델:     claude-haiku-4-5`);
   console.log('─────────────────────────────\n');
 });
