@@ -692,9 +692,9 @@ async function doAISummary() {
     var errMsg = err.message || '알 수 없는 오류';
 
     // 서버 키 미설정 오류 안내 (Guide user when server key is not set)
-    if (errMsg.includes('ANTHROPIC_API_KEY') || errMsg.includes('503')) {
+    if (errMsg.includes('GEMINI_API_KEY') || errMsg.includes('503')) {
       showMemoSt('❌ 서버 API 키 미설정');
-      alert('서버에 ANTHROPIC_API_KEY가 설정되지 않았습니다.\n\nVercel 환경변수 또는 로컬 .env 파일을 확인해주세요.');
+      alert('서버에 GEMINI_API_KEY가 설정되지 않았습니다.\n\nVercel 환경변수 또는 로컬 .env 파일을 확인해주세요.');
     } else {
       showMemoSt('❌ 오류: ' + errMsg.slice(0, 40));
       var errorText = '\n\n[AI 요약 오류]\n' + errMsg;
