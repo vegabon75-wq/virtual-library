@@ -494,11 +494,13 @@ function extractCurrentText() {
   var body = document.getElementById('pg-body');
   if (!body) return '';
 
-  // PDF 뷰어의 경우 캔버스에서 텍스트를 직접 추출하기 어려우므로 파일명 기반 안내 반환
   var pdfWrap = body.querySelector('#pdf-wrap');
   if (pdfWrap) {
+    if (window._currentPdfText && window._currentPdfText.trim().length > 10) {
+      return window._currentPdfText;
+    }
     var title = document.getElementById('pg-title');
-    return '[PDF 문서: ' + (title ? title.textContent : '알 수 없음') + ']\n\n이 문서는 PDF 형식으로, 시각적으로 렌더링된 상태입니다. 표지와 제목 정보를 바탕으로 요약을 요청합니다.';
+    return '[PDF 문서: ' + (title ? title.textContent : '알 수 없음') + ']\n텍스트를 추출할 수 없는 PDF입니다 (스캔본 또는 이미지 PDF).';
   }
 
   // 이미지 뷰어인 경우 (Image viewer)
@@ -873,14 +875,18 @@ async function renderPDF(file, name) {
     var buf = await file.arrayBuffer();
     var pdf = await lib.getDocument({data: buf}).promise;
     wrap.innerHTML = '';
+    var pdfPages = [];
     for (var j = 1; j <= pdf.numPages; j++) {
       var page = await pdf.getPage(j);
       var vp   = page.getViewport({scale: 1.4});
       var cvs  = document.createElement('canvas');
       cvs.width = vp.width; cvs.height = vp.height; cvs.style.width = '100%';
       wrap.appendChild(cvs);
+      var tc = await page.getTextContent();
+      pdfPages.push(tc.items.map(function(it){ return it.str; }).join(' '));
       await page.render({canvasContext: cvs.getContext('2d'), viewport: vp}).promise;
     }
+    window._currentPdfText = pdfPages.join('\n\n');
     var top = parseFloat(lsGet(pKey(name), '0'));
     if (top > 0) wrap.scrollTop = top;
     setProgUI(parseInt(lsGet(pKey(name) + 'p', '0')));
@@ -896,6 +902,7 @@ async function renderPDF(file, name) {
 // ═══════════════════════════════════════
 function closeBook() {
   saveMemo(); detachProg();
+  window._currentPdfText = null;
   document.getElementById('book-modal').classList.remove('open');
 }
 
