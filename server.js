@@ -20,7 +20,7 @@ app.use(express.static(path.join(__dirname)));     // 정적 파일 서빙 (Serv
 // 실제 키 값은 절대 클라이언트에 전송하지 않음
 // ─────────────────────────────────────────
 app.get('/api/config', (req, res) => {
-  const hasKey = !!(process.env.GEMINI_API_KEY);
+  const hasKey = !!(process.env.VITE_GEMINI_API_KEY);
   res.json({ hasKey });
 });
 
@@ -29,12 +29,11 @@ app.get('/api/config', (req, res) => {
 // 클라이언트는 API 키를 모르고, 서버가 대신 Gemini 호출
 // ─────────────────────────────────────────
 app.post('/api/summarize', async (req, res) => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.VITE_GEMINI_API_KEY;
 
-  // API 키 미설정 시 오류 반환 (Return error if API key not set)
   if (!apiKey) {
     return res.status(503).json({
-      error: '서버에 GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.'
+      error: '서버에 VITE_GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.'
     });
   }
 
@@ -99,7 +98,7 @@ app.get('*', (req, res) => {
 // 서버 시작 (Start server)
 // ─────────────────────────────────────────
 app.listen(PORT, () => {
-  const apiKey   = process.env.GEMINI_API_KEY;
+  const apiKey   = process.env.VITE_GEMINI_API_KEY;
   const model    = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-05-20';
   console.log('\n🕯️  나의 가상 서재 서버');
   console.log('─────────────────────────────');
