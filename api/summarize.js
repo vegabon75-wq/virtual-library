@@ -29,7 +29,7 @@ module.exports = async function handler(req, res) {
     '**문서 내용**:\n' + content.slice(0, 12000);
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey, { apiVersion: 'v1beta' });
+    const genAI = new GoogleGenerativeAI(apiKey);
     const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     const model = genAI.getGenerativeModel({
       model: modelName,

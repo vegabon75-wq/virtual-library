@@ -59,7 +59,7 @@ app.post('/api/summarize', async (req, res) => {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
 
     // API 키와 v1beta 버전으로 클라이언트 초기화 (Initialize client with API key and v1beta)
-    const genAI = new GoogleGenerativeAI(apiKey, { apiVersion: 'v1beta' });
+    const genAI = new GoogleGenerativeAI(apiKey);
 
     // .env 의 GEMINI_MODEL 값 우선, 없으면 기본 모델 사용
     const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
