@@ -515,12 +515,14 @@ body {
 }
 
 /* ===== AI Summary ===== */
+.ai-sum-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.memo-panel-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ai-sum-btn {
   font-family: Georgia, serif;
-  font-size: 11px;
-  letter-spacing: 1px;
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
   text-transform: none;
-  padding: 5px 13px;
+  padding: 5px 11px;
   border-radius: 5px;
   cursor: pointer;
   color: #1a1008;
@@ -839,8 +841,11 @@ body {
     <!-- Memo Panel (right 50%) -->
     <div class="memo-panel">
       <div class="memo-panel-header">
-        <span>✦ 메모장 &nbsp; Notes</span>
-        <button class="ai-sum-btn" id="aiSummaryBtn" title="현재 PDF 페이지를 AI로 요약">✨ AI 요약</button>
+        <span class="memo-panel-title">✦ 메모장</span>
+        <div class="ai-sum-btns">
+          <button class="ai-sum-btn" id="aiSummaryPageBtn" title="현재 페이지만 AI로 요약">📄 페이지</button>
+          <button class="ai-sum-btn" id="aiSummaryDocBtn" title="문서 전체를 AI로 요약">📚 전체</button>
+        </div>
       </div>
       <div class="ai-sum-box" id="aiSummaryBox">
         <div class="ai-sum-box-head">
@@ -1235,7 +1240,12 @@ async function loadPDF(book) {
     const record = await idbGet('books', book.id);
     const buffer = await record.blob.arrayBuffer();
 
-    pdfDoc     = await pdfjsLib.getDocument({ data: buffer }).promise;
+    pdfDoc     = await pdfjsLib.getDocument({
+      data: buffer,
+      // 한글(CJK) PDF는 유니코드 텍스트 추출에 CMap이 필요함 (렌더링은 영향 없음)
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapPacked: true,
+    }).promise;
     totalPages = pdfDoc.numPages;
     currentPage = 1;
 
@@ -1395,6 +1405,19 @@ async function extractPageText(pageNum) {
   return tc.items.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim();
 }
 
+// Gather text across the whole document (capped) for the "전체" summary
+const SUMMARY_TEXT_CAP = 12000;
+async function gatherDocText() {
+  const parts = [];
+  let total = 0;
+  for (let p = 1; p <= totalPages; p++) {
+    const t = await extractPageText(p);
+    if (t) { parts.push(t); total += t.length + 1; }
+    if (total >= SUMMARY_TEXT_CAP) break;
+  }
+  return parts.join('\n').slice(0, SUMMARY_TEXT_CAP).trim();
+}
+
 // Call the server summary endpoint; throw coded errors for friendly messages
 async function requestSummary(content, title) {
   let resp;
@@ -1419,38 +1442,48 @@ async function requestSummary(content, title) {
 }
 
 const SUMMARY_ERRORS = {
-  NOTEXT:   '이 페이지에서 추출할 텍스트가 없습니다.\n(스캔본·이미지 PDF는 요약할 수 없어요)',
+  NOTEXT:   '이 PDF에서 추출할 수 있는 텍스트가 거의 없습니다.\n스캔본이거나 텍스트가 이미지로 들어간 PDF는 요약할 수 없어요.',
+  NOTEXT_PAGE: '이 페이지에는 추출할 텍스트가 거의 없습니다.\n표지·그림 위주 페이지일 수 있어요. [📚 전체] 요약을 사용해보세요.',
   NETWORK:  'AI 요약 서버에 연결할 수 없습니다.\nserver.js 실행 후( npm start ) http://localhost:3000 에서 열어주세요.',
   NOSERVER: 'AI 요약 API(/api/summarize)를 찾을 수 없습니다.\n정적 서버 대신 server.js로 실행해야 합니다 ( npm start, 포트 3000 ).',
   NOKEY:    '서버에 GROQ_API_KEY가 설정되지 않았습니다.\n.env 에 키를 넣고 server.js를 다시 시작해주세요.'
 };
 
-async function doAISummary() {
+async function doAISummary(mode) {   // mode: 'page' | 'doc'
   if (!pdfDoc || !currentBook) return;
 
-  const btn      = document.getElementById('aiSummaryBtn');
+  const pageBtn  = document.getElementById('aiSummaryPageBtn');
+  const docBtn   = document.getElementById('aiSummaryDocBtn');
   const box      = document.getElementById('aiSummaryBox');
   const badge    = document.getElementById('aiSummaryBadge');
   const contentEl= document.getElementById('aiSummaryContent');
   const saveBtn  = document.getElementById('aiSummarySaveBtn');
   const page     = currentPage;
-  const original = btn.textContent;
+  const clicked  = mode === 'doc' ? docBtn : pageBtn;
+  const original = clicked.textContent;
 
-  btn.disabled    = true;
-  btn.textContent = '⏳ 요약 중…';
+  pageBtn.disabled = true;
+  docBtn.disabled  = true;
+  clicked.textContent = '⏳…';
   box.style.display = 'block';
   box.classList.remove('error');
   saveBtn.style.display = 'none';
-  badge.textContent = `🤖 p.${page} 요약 중`;
-  contentEl.innerHTML = `<span class="ai-sum-loading">AI가 p.${page} 페이지를 분석하고 있습니다…</span>`;
+  badge.textContent = mode === 'doc' ? '🤖 문서 전체 요약 중' : `🤖 p.${page} 요약 중`;
+  contentEl.innerHTML = `<span class="ai-sum-loading">AI가 ${mode === 'doc' ? '문서 전체' : ('p.' + page + ' 페이지')}를 분석하고 있습니다…</span>`;
 
   try {
-    const text = await extractPageText(page);
-    if (!text || text.length < 20) throw new Error('NOTEXT');
+    let text;
+    if (mode === 'doc') {
+      text = await gatherDocText();
+      if (text.length < 20) throw new Error('NOTEXT');
+    } else {
+      text = await extractPageText(page);
+      if (text.length < 20) throw new Error('NOTEXT_PAGE');
+    }
 
     const result = await requestSummary(text, currentBook.name.replace(/\.pdf$/i, ''));
-    lastSummary = { page, text: result };
-    badge.textContent     = `🤖 p.${page} AI 요약`;
+    lastSummary = { page, text: result, scope: mode };
+    badge.textContent     = mode === 'doc' ? '🤖 문서 전체 AI 요약' : `🤖 p.${page} AI 요약`;
     contentEl.textContent = result;
     saveBtn.style.display = '';
   } catch (err) {
@@ -1460,8 +1493,9 @@ async function doAISummary() {
     lastSummary = null;
     contentEl.textContent = SUMMARY_ERRORS[err.message] || ('오류: ' + err.message);
   } finally {
-    btn.disabled    = false;
-    btn.textContent = original;
+    pageBtn.disabled = false;
+    docBtn.disabled  = false;
+    clicked.textContent = original;
   }
 }
 
@@ -1470,7 +1504,7 @@ async function saveSummaryAsMemo() {
   await idbAdd('memos', {
     bookId:    currentBook.id,
     page:      lastSummary.page,
-    content:   '🤖 AI 요약\n' + lastSummary.text,
+    content:   (lastSummary.scope === 'doc' ? '🤖 AI 요약 (문서 전체)\n' : '🤖 AI 요약\n') + lastSummary.text,
     createdAt: Date.now()
   });
   showToast('AI 요약을 메모로 저장했습니다');
@@ -1486,7 +1520,8 @@ function closeSummaryBox() {
   lastSummary = null;
 }
 
-document.getElementById('aiSummaryBtn').addEventListener('click', doAISummary);
+document.getElementById('aiSummaryPageBtn').addEventListener('click', () => doAISummary('page'));
+document.getElementById('aiSummaryDocBtn').addEventListener('click', () => doAISummary('doc'));
 document.getElementById('aiSummarySaveBtn').addEventListener('click', saveSummaryAsMemo);
 document.getElementById('aiSummaryCloseBtn').addEventListener('click', closeSummaryBox);
 
