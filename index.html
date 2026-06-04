@@ -971,6 +971,7 @@ body {
 const DB_NAME    = 'VirtualLibraryDB_v2';
 const DB_VERSION = 2;
 let db;
+let dbReady;   // 캐시된 open Promise
 
 function openDB() {
   return new Promise((res, rej) => {
@@ -990,54 +991,73 @@ function openDB() {
       }
     };
 
-    req.onsuccess = ev => { db = ev.target.result; res(db); };
+    req.onsuccess = ev => {
+      db = ev.target.result;
+      // 다른 탭이 새 버전으로 업그레이드하려 하면 이 연결을 닫아 차단(blocked)을 방지
+      db.onversionchange = () => { try { db.close(); } catch (e) {} db = undefined; dbReady = undefined; };
+      res(db);
+    };
     req.onerror   = ev => rej(ev.target.error);
+    req.onblocked = () => rej(new Error('다른 탭에서 이전 버전을 사용 중입니다. 이 사이트의 다른 탭을 모두 닫고 새로고침 해주세요.'));
   });
 }
 
-function idbAdd(store, data) {
+// 모든 IndexedDB 작업 전에 db 준비를 보장 (열기 실패 시 다음 호출에서 재시도)
+function ensureDB() {
+  if (db) return Promise.resolve(db);
+  if (!dbReady) dbReady = openDB().catch(err => { dbReady = undefined; throw err; });
+  return dbReady;
+}
+
+async function idbAdd(store, data) {
+  const d = await ensureDB();
   return new Promise((res, rej) => {
-    const r = db.transaction(store, 'readwrite').objectStore(store).add(data);
+    const r = d.transaction(store, 'readwrite').objectStore(store).add(data);
     r.onsuccess = ev => res(ev.target.result);
     r.onerror   = ev => rej(ev.target.error);
   });
 }
 
-function idbPut(store, data) {
+async function idbPut(store, data) {
+  const d = await ensureDB();
   return new Promise((res, rej) => {
-    const r = db.transaction(store, 'readwrite').objectStore(store).put(data);
+    const r = d.transaction(store, 'readwrite').objectStore(store).put(data);
     r.onsuccess = ev => res(ev.target.result);
     r.onerror   = ev => rej(ev.target.error);
   });
 }
 
-function idbGetAll(store) {
+async function idbGetAll(store) {
+  const d = await ensureDB();
   return new Promise((res, rej) => {
-    const r = db.transaction(store, 'readonly').objectStore(store).getAll();
+    const r = d.transaction(store, 'readonly').objectStore(store).getAll();
     r.onsuccess = ev => res(ev.target.result);
     r.onerror   = ev => rej(ev.target.error);
   });
 }
 
-function idbGet(store, id) {
+async function idbGet(store, id) {
+  const d = await ensureDB();
   return new Promise((res, rej) => {
-    const r = db.transaction(store, 'readonly').objectStore(store).get(id);
+    const r = d.transaction(store, 'readonly').objectStore(store).get(id);
     r.onsuccess = ev => res(ev.target.result);
     r.onerror   = ev => rej(ev.target.error);
   });
 }
 
-function idbDelete(store, id) {
+async function idbDelete(store, id) {
+  const d = await ensureDB();
   return new Promise((res, rej) => {
-    const r = db.transaction(store, 'readwrite').objectStore(store).delete(id);
+    const r = d.transaction(store, 'readwrite').objectStore(store).delete(id);
     r.onsuccess = () => res();
     r.onerror   = ev => rej(ev.target.error);
   });
 }
 
-function idbGetByIndex(store, indexName, val) {
+async function idbGetByIndex(store, indexName, val) {
+  const d = await ensureDB();
   return new Promise((res, rej) => {
-    const os = db.transaction(store, 'readonly').objectStore(store);
+    const os = d.transaction(store, 'readonly').objectStore(store);
     const r  = os.index(indexName).getAll(IDBKeyRange.only(val));
     r.onsuccess = ev => res(ev.target.result);
     r.onerror   = ev => rej(ev.target.error);
@@ -1168,17 +1188,24 @@ document.getElementById('folderInput').addEventListener('change', async e => {
   const existingNames = new Set(books.map(b => b.fileName));
   let added = 0;
 
-  for (const file of files) {
-    if (existingNames.has(file.name)) continue;
-    const record = {
-      name:      file.name,
-      fileName:  file.name,
-      blob:      file,        // File extends Blob — IDB stores it natively
-      createdAt: Date.now(),
-    };
-    const id = await idbAdd('books', record);
-    books.push({ ...record, id });
-    added++;
+  try {
+    for (const file of files) {
+      if (existingNames.has(file.name)) continue;
+      const record = {
+        name:      file.name,
+        fileName:  file.name,
+        blob:      file,        // File extends Blob — IDB stores it natively
+        createdAt: Date.now(),
+      };
+      const id = await idbAdd('books', record);
+      books.push({ ...record, id });
+      added++;
+    }
+  } catch (err) {
+    console.error('폴더 추가 실패:', err);
+    renderBookshelf();
+    showToast('⚠️ ' + (err.message || '저장 중 오류가 발생했습니다'));
+    return;
   }
 
   renderBookshelf();
@@ -1815,9 +1842,14 @@ function showToast(msg) {
    Boot
    ============================================================= */
 (async () => {
-  await openDB();
-  const all = await idbGetAll('books');
-  books = all.sort((a, b) => a.createdAt - b.createdAt);
+  try {
+    await ensureDB();
+    const all = await idbGetAll('books');
+    books = all.sort((a, b) => a.createdAt - b.createdAt);
+  } catch (err) {
+    console.error('DB 초기화 실패:', err);
+    showToast('⚠️ ' + (err.message || '저장소를 열 수 없습니다'));
+  }
   renderBookshelf();
 })();
 </script>
