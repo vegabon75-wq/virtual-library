@@ -1143,7 +1143,16 @@ const BOOK_HEIGHTS = [168, 185, 175, 192, 160, 180, 195, 163, 177, 188, 165, 183
 /* =============================================================
    Render Bookshelf
    ============================================================= */
-const BOOKS_PER_SHELF = 9;
+const BOOK_W = 54, BOOK_GAP = 5;   // .book width + .shelf-books-row gap
+
+// 현재 화면 폭에 맞춰 한 선반에 들어갈 책 수 계산 (선반 폭 채우기)
+function computePerShelf(wrap) {
+  const cs    = getComputedStyle(wrap);
+  const inner = wrap.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
+  const area  = inner - 58;                 // .shelf-books-row 좌우 border(5*2) + padding(24*2)
+  if (area <= 0) return 9;                   // 측정 불가(숨김 등) 시 기본값
+  return Math.max(1, Math.floor((area + BOOK_GAP) / (BOOK_W + BOOK_GAP)));
+}
 
 function renderBookshelf() {
   const wrap = document.getElementById('bookshelfWrap');
@@ -1165,9 +1174,11 @@ function renderBookshelf() {
 
   wrap.innerHTML = '';
 
+  const perShelf = computePerShelf(wrap);   // 선반 폭에 맞게 책 수 결정
+
   // Split into shelf rows
-  for (let si = 0; si * BOOKS_PER_SHELF < books.length; si++) {
-    const shelfBooks = books.slice(si * BOOKS_PER_SHELF, (si + 1) * BOOKS_PER_SHELF);
+  for (let si = 0; si * perShelf < books.length; si++) {
+    const shelfBooks = books.slice(si * perShelf, (si + 1) * perShelf);
 
     const unit  = document.createElement('div');
     unit.className = 'shelf-unit';
@@ -1180,10 +1191,9 @@ function renderBookshelf() {
     const row = document.createElement('div');
     row.className = 'shelf-books-row';
 
-    shelfBooks.forEach((book, bi) => {
-      const gi     = si * BOOKS_PER_SHELF + bi;
-      const bg     = PALETTES[gi % PALETTES.length];
-      const height = BOOK_HEIGHTS[gi % BOOK_HEIGHTS.length];
+    shelfBooks.forEach((book) => {
+      const bg     = PALETTES[book.id % PALETTES.length];        // 색을 책 id에 고정 (재정렬해도 불변)
+      const height = BOOK_HEIGHTS[book.id % BOOK_HEIGHTS.length]; // 높이도 id에 고정
       const title  = book.name.replace(/\.pdf$/i, '');
 
       const el = document.createElement('div');
@@ -1977,6 +1987,13 @@ function showToast(msg) {
   }
   renderBookshelf();
 })();
+
+// 창 크기 변경 시 선반을 다시 채워 폭에 맞춤 (디바운스)
+let _shelfResizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_shelfResizeTimer);
+  _shelfResizeTimer = setTimeout(() => { if (books.length) renderBookshelf(); }, 200);
+});
 </script>
 </body>
 </html>
