@@ -318,6 +318,23 @@ body {
 .book:hover .book-del { opacity: 1; pointer-events: auto; transform: translateX(-50%) scale(1); }
 .book-del:hover { background: rgba(185,40,40,0.95); color: #fff; border-color: rgba(255,120,120,0.85); }
 
+/* ===== Drag to reorder ===== */
+.book.dragging { opacity: 0.35; }
+.book.dragging .book-del { display: none; }
+.book.insert-left::before,
+.book.insert-right::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 3px;
+  background: var(--gold);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(201,168,76,0.7);
+  z-index: 7;
+}
+.book.insert-left::before { left: -4px; }
+.book.insert-right::after { right: -4px; }
+
 /* ===== Animated Book ===== */
 #animBook {
   position: fixed;
@@ -987,7 +1004,7 @@ body {
    IndexedDB Helpers
    ============================================================= */
 const DB_NAME    = 'VirtualLibraryDB_v2';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 let db;
 let dbReady;   // 캐시된 open Promise
 
@@ -1006,6 +1023,9 @@ function openDB() {
       }
       if (!d.objectStoreNames.contains('chats')) {
         d.createObjectStore('chats', { keyPath: 'bookId' });   // 책별 대화 1레코드
+      }
+      if (!d.objectStoreNames.contains('meta')) {
+        d.createObjectStore('meta', { keyPath: 'key' });       // 책 정렬 순서 등 메타데이터
       }
     };
 
@@ -1094,6 +1114,7 @@ let rendering   = false;
 let pendingPage = null;
 let zoomFactor  = 1;                 // 1 = 너비 맞춤(fit-to-width)
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3.0, ZOOM_STEP = 0.2;
+let dragSrcId   = null;              // 드래그 중인 책 id (순서 변경용)
 
 /* =============================================================
    PDF.js worker
@@ -1175,10 +1196,39 @@ function renderBookshelf() {
           <div class="book-band"></div>
         </div>
         <button class="book-del" title="이 책 삭제">✕</button>`;
+      el.draggable = true;
       el.addEventListener('click', () => openBook(book, el));
       el.querySelector('.book-del').addEventListener('click', ev => {
         ev.stopPropagation();
         deleteBook(book);
+      });
+      el.addEventListener('dragstart', ev => {
+        dragSrcId = book.id;
+        ev.dataTransfer.effectAllowed = 'move';
+        try { ev.dataTransfer.setData('text/plain', String(book.id)); } catch (_) {}
+        el.classList.add('dragging');
+      });
+      el.addEventListener('dragover', ev => {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'move';
+        const rect  = el.getBoundingClientRect();
+        const after = (ev.clientX - rect.left) > rect.width / 2;
+        document.querySelectorAll('.book.insert-left, .book.insert-right')
+          .forEach(b => { if (b !== el) b.classList.remove('insert-left', 'insert-right'); });
+        el.classList.toggle('insert-right',  after);
+        el.classList.toggle('insert-left',  !after);
+      });
+      el.addEventListener('drop', ev => {
+        ev.preventDefault();
+        const after = el.classList.contains('insert-right');
+        el.classList.remove('insert-left', 'insert-right');
+        if (dragSrcId != null && dragSrcId !== book.id) moveBook(dragSrcId, book.id, after);
+      });
+      el.addEventListener('dragend', () => {
+        el.classList.remove('dragging');
+        document.querySelectorAll('.book.insert-left, .book.insert-right')
+          .forEach(b => b.classList.remove('insert-left', 'insert-right'));
+        dragSrcId = null;
       });
       row.appendChild(el);
     });
@@ -1255,6 +1305,26 @@ async function deleteBook(book) {
     console.error('책 삭제 실패:', err);
     showToast('⚠️ ' + (err.message || '삭제 중 오류가 발생했습니다'));
   }
+}
+
+/* =============================================================
+   Reorder Books (drag & drop) — 순서는 'meta' 스토어에 저장
+   ============================================================= */
+function moveBook(srcId, targetId, after) {
+  const from = books.findIndex(b => b.id === srcId);
+  if (from === -1) return;
+  const [moved] = books.splice(from, 1);
+  let to = books.findIndex(b => b.id === targetId);
+  if (to === -1) { books.splice(from, 0, moved); return; }  // 안전장치: 원위치 복원
+  if (after) to += 1;
+  books.splice(to, 0, moved);
+  renderBookshelf();
+  persistOrder();
+}
+
+async function persistOrder() {
+  try { await idbPut('meta', { key: 'bookOrder', ids: books.map(b => b.id) }); }
+  catch (err) { console.error('순서 저장 실패:', err); }
 }
 
 /* =============================================================
@@ -1888,7 +1958,19 @@ function showToast(msg) {
   try {
     await ensureDB();
     const all = await idbGetAll('books');
-    books = all.sort((a, b) => a.createdAt - b.createdAt);
+    let orderRec = null;
+    try { orderRec = await idbGet('meta', 'bookOrder'); } catch (_) {}
+    if (orderRec && Array.isArray(orderRec.ids)) {
+      const pos = new Map(orderRec.ids.map((id, i) => [id, i]));
+      all.sort((a, b) => {
+        const pa = pos.has(a.id) ? pos.get(a.id) : Infinity;
+        const pb = pos.has(b.id) ? pos.get(b.id) : Infinity;
+        return pa !== pb ? pa - pb : a.createdAt - b.createdAt;   // 신규 책은 뒤로
+      });
+    } else {
+      all.sort((a, b) => a.createdAt - b.createdAt);
+    }
+    books = all;
   } catch (err) {
     console.error('DB 초기화 실패:', err);
     showToast('⚠️ ' + (err.message || '저장소를 열 수 없습니다'));
