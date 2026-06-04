@@ -196,9 +196,11 @@ body {
   border-left: 5px solid var(--wood-light);
   border-right: 5px solid var(--wood-light);
   border-top: 2px solid rgba(139,90,40,0.3);
-  flex-wrap: nowrap;
-  overflow: hidden;
+  flex-wrap: wrap;
+  overflow: visible;
 }
+.shelf-books-row.drop-target { box-shadow: inset 0 0 0 2px rgba(201,168,76,0.45); }
+.empty-hint { text-align: center; color: var(--text-dim); font-size: 13px; padding: 24px 16px; }
 
 .shelf-plank {
   height: 26px;
@@ -1143,104 +1145,164 @@ const BOOK_HEIGHTS = [168, 185, 175, 192, 160, 180, 195, 163, 177, 188, 165, 183
 /* =============================================================
    Render Bookshelf
    ============================================================= */
-const BOOK_W = 54, BOOK_GAP = 5;   // .book width + .shelf-books-row gap
+const SHELF_COUNT = 3;
+let shelfLayout = [[], [], []];   // 각 선반의 책 id 배열 (소속 + 순서)
 
-// 현재 화면 폭에 맞춰 한 선반에 들어갈 책 수 계산 (선반 폭 채우기)
-function computePerShelf(wrap) {
-  const cs    = getComputedStyle(wrap);
-  const inner = wrap.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
-  const area  = inner - 58;                 // .shelf-books-row 좌우 border(5*2) + padding(24*2)
-  if (area <= 0) return 9;                   // 측정 불가(숨김 등) 시 기본값
-  return Math.max(1, Math.floor((area + BOOK_GAP) / (BOOK_W + BOOK_GAP)));
+function bookById(id) { return books.find(b => b.id === id); }
+
+// 책 id 배열을 n개 선반에 순서 유지하며 균등 분배
+function distributeShelves(ids, n) {
+  const out  = Array.from({ length: n }, () => []);
+  const base = Math.floor(ids.length / n), rem = ids.length % n;
+  let i = 0;
+  for (let s = 0; s < n; s++) {
+    const size = base + (s < rem ? 1 : 0);
+    out[s] = ids.slice(i, i + size);
+    i += size;
+  }
+  return out;
+}
+
+// shelfLayout 정합성 보정: 삭제된 책 제거 + 새 책 배치 (변경 시 저장)
+function ensureShelfLayout() {
+  if (!Array.isArray(shelfLayout) || shelfLayout.length !== SHELF_COUNT) {
+    shelfLayout = Array.from({ length: SHELF_COUNT }, () => []);
+  }
+  let changed = false;
+  const existing = new Set(books.map(b => b.id));
+  for (let s = 0; s < SHELF_COUNT; s++) {
+    const filtered = shelfLayout[s].filter(id => existing.has(id));
+    if (filtered.length !== shelfLayout[s].length) { shelfLayout[s] = filtered; changed = true; }
+  }
+  const placed = new Set(shelfLayout.flat());
+  for (const b of books) {
+    if (!placed.has(b.id)) {
+      let s = 0;                              // 가장 적은 선반에 배치
+      for (let i = 1; i < SHELF_COUNT; i++) if (shelfLayout[i].length < shelfLayout[s].length) s = i;
+      shelfLayout[s].push(b.id);
+      changed = true;
+    }
+  }
+  if (changed) persistLayout();
+}
+
+async function persistLayout() {
+  try { await idbPut('meta', { key: 'shelfLayout', shelves: shelfLayout }); }
+  catch (err) { console.error('선반 배치 저장 실패:', err); }
+}
+
+function clearDropMarks() {
+  document.querySelectorAll('.book.insert-left, .book.insert-right')
+    .forEach(b => b.classList.remove('insert-left', 'insert-right'));
+  document.querySelectorAll('.shelf-books-row.drop-target')
+    .forEach(r => r.classList.remove('drop-target'));
+}
+
+// 드래그한 책을 지정 선반으로 이동 (beforeId 없으면 그 선반 끝에 추가)
+function moveBookTo(srcId, shelfIdx, beforeId, after) {
+  for (const arr of shelfLayout) {
+    const i = arr.indexOf(srcId);
+    if (i !== -1) { arr.splice(i, 1); break; }
+  }
+  const target = shelfLayout[shelfIdx];
+  if (beforeId == null) {
+    target.push(srcId);
+  } else {
+    let idx = target.indexOf(beforeId);
+    if (idx === -1) target.push(srcId);
+    else { if (after) idx += 1; target.splice(idx, 0, srcId); }
+  }
+  renderBookshelf();
+  persistLayout();
+}
+
+// 책 el 생성 (색·높이는 책 id에 고정 / 드래그는 소속 선반 shelfIdx 인지)
+function makeBookEl(book, shelfIdx) {
+  const bg     = PALETTES[book.id % PALETTES.length];
+  const height = BOOK_HEIGHTS[book.id % BOOK_HEIGHTS.length];
+  const title  = book.name.replace(/\.pdf$/i, '');
+
+  const el = document.createElement('div');
+  el.className   = 'book';
+  el.dataset.bid = book.id;
+  el.style.height = height + 'px';
+  el.innerHTML = `
+    <div class="book-spine" style="background:${bg};">
+      <span class="book-title-vert">${escHtml(title)}</span>
+      <div class="book-band"></div>
+    </div>
+    <button class="book-del" title="이 책 삭제">✕</button>`;
+  el.draggable = true;
+  el.addEventListener('click', () => openBook(book, el));
+  el.querySelector('.book-del').addEventListener('click', ev => {
+    ev.stopPropagation();
+    deleteBook(book);
+  });
+  el.addEventListener('dragstart', ev => {
+    dragSrcId = book.id;
+    ev.dataTransfer.effectAllowed = 'move';
+    try { ev.dataTransfer.setData('text/plain', String(book.id)); } catch (_) {}
+    el.classList.add('dragging');
+  });
+  el.addEventListener('dragover', ev => {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    const rect  = el.getBoundingClientRect();
+    const after = (ev.clientX - rect.left) > rect.width / 2;
+    clearDropMarks();
+    el.classList.toggle('insert-right',  after);
+    el.classList.toggle('insert-left',  !after);
+  });
+  el.addEventListener('drop', ev => {
+    ev.preventDefault();
+    ev.stopPropagation();                     // 행(row) drop으로 전파 방지
+    const after = el.classList.contains('insert-right');
+    clearDropMarks();
+    if (dragSrcId != null && dragSrcId !== book.id) moveBookTo(dragSrcId, shelfIdx, book.id, after);
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    clearDropMarks();
+    dragSrcId = null;
+  });
+  return el;
 }
 
 function renderBookshelf() {
   const wrap = document.getElementById('bookshelfWrap');
   document.getElementById('bookCountBadge').textContent = `책 ${books.length}권`;
 
-  if (!books.length) {
-    wrap.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon-wrap">📖</div>
-        <div class="empty-title">서재가 비어 있습니다</div>
-        <div class="empty-desc">
-          우측 상단 <strong style="color:var(--gold)">폴더 추가</strong> 버튼으로<br>
-          PDF 파일이 담긴 폴더를 불러오세요
-        </div>
-        <div class="empty-arrow">↗</div>
-      </div>`;
-    return;
-  }
-
+  ensureShelfLayout();
   wrap.innerHTML = '';
 
-  const perShelf = computePerShelf(wrap);   // 선반 폭에 맞게 책 수 결정
-
-  // Split into shelf rows
-  for (let si = 0; si * perShelf < books.length; si++) {
-    const shelfBooks = books.slice(si * perShelf, (si + 1) * perShelf);
-
-    const unit  = document.createElement('div');
+  for (let s = 0; s < SHELF_COUNT; s++) {
+    const unit = document.createElement('div');
     unit.className = 'shelf-unit';
 
     const lbl = document.createElement('div');
     lbl.className   = 'shelf-label';
-    lbl.textContent = `Shelf ${si + 1}`;
+    lbl.textContent = `Shelf ${s + 1}`;
     unit.appendChild(lbl);
 
     const row = document.createElement('div');
     row.className = 'shelf-books-row';
+    row.dataset.shelf = s;
 
-    shelfBooks.forEach((book) => {
-      const bg     = PALETTES[book.id % PALETTES.length];        // 색을 책 id에 고정 (재정렬해도 불변)
-      const height = BOOK_HEIGHTS[book.id % BOOK_HEIGHTS.length]; // 높이도 id에 고정
-      const title  = book.name.replace(/\.pdf$/i, '');
+    // 책이 아닌 빈 공간에 드롭 → 그 선반 끝으로 이동
+    row.addEventListener('dragover', ev => {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      if (!ev.target.closest('.book')) { clearDropMarks(); row.classList.add('drop-target'); }
+    });
+    row.addEventListener('drop', ev => {
+      ev.preventDefault();
+      row.classList.remove('drop-target');
+      if (!ev.target.closest('.book') && dragSrcId != null) moveBookTo(dragSrcId, s, null);
+    });
 
-      const el = document.createElement('div');
-      el.className   = 'book';
-      el.dataset.bid = book.id;
-      el.style.height = height + 'px';
-      el.innerHTML = `
-        <div class="book-spine" style="background:${bg};">
-          <span class="book-title-vert">${escHtml(title)}</span>
-          <div class="book-band"></div>
-        </div>
-        <button class="book-del" title="이 책 삭제">✕</button>`;
-      el.draggable = true;
-      el.addEventListener('click', () => openBook(book, el));
-      el.querySelector('.book-del').addEventListener('click', ev => {
-        ev.stopPropagation();
-        deleteBook(book);
-      });
-      el.addEventListener('dragstart', ev => {
-        dragSrcId = book.id;
-        ev.dataTransfer.effectAllowed = 'move';
-        try { ev.dataTransfer.setData('text/plain', String(book.id)); } catch (_) {}
-        el.classList.add('dragging');
-      });
-      el.addEventListener('dragover', ev => {
-        ev.preventDefault();
-        ev.dataTransfer.dropEffect = 'move';
-        const rect  = el.getBoundingClientRect();
-        const after = (ev.clientX - rect.left) > rect.width / 2;
-        document.querySelectorAll('.book.insert-left, .book.insert-right')
-          .forEach(b => { if (b !== el) b.classList.remove('insert-left', 'insert-right'); });
-        el.classList.toggle('insert-right',  after);
-        el.classList.toggle('insert-left',  !after);
-      });
-      el.addEventListener('drop', ev => {
-        ev.preventDefault();
-        const after = el.classList.contains('insert-right');
-        el.classList.remove('insert-left', 'insert-right');
-        if (dragSrcId != null && dragSrcId !== book.id) moveBook(dragSrcId, book.id, after);
-      });
-      el.addEventListener('dragend', () => {
-        el.classList.remove('dragging');
-        document.querySelectorAll('.book.insert-left, .book.insert-right')
-          .forEach(b => b.classList.remove('insert-left', 'insert-right'));
-        dragSrcId = null;
-      });
-      row.appendChild(el);
+    shelfLayout[s].forEach(id => {
+      const book = bookById(id);
+      if (book) row.appendChild(makeBookEl(book, s));
     });
 
     unit.appendChild(row);
@@ -1254,6 +1316,13 @@ function renderBookshelf() {
     unit.appendChild(shadow);
 
     wrap.appendChild(unit);
+  }
+
+  if (!books.length) {
+    const hint = document.createElement('div');
+    hint.className = 'empty-hint';
+    hint.innerHTML = '서재가 비어 있습니다 — 우측 상단 <strong style="color:var(--gold)">폴더 추가</strong>로 PDF를 불러오세요';
+    wrap.appendChild(hint);
   }
 }
 
@@ -1317,25 +1386,7 @@ async function deleteBook(book) {
   }
 }
 
-/* =============================================================
-   Reorder Books (drag & drop) — 순서는 'meta' 스토어에 저장
-   ============================================================= */
-function moveBook(srcId, targetId, after) {
-  const from = books.findIndex(b => b.id === srcId);
-  if (from === -1) return;
-  const [moved] = books.splice(from, 1);
-  let to = books.findIndex(b => b.id === targetId);
-  if (to === -1) { books.splice(from, 0, moved); return; }  // 안전장치: 원위치 복원
-  if (after) to += 1;
-  books.splice(to, 0, moved);
-  renderBookshelf();
-  persistOrder();
-}
-
-async function persistOrder() {
-  try { await idbPut('meta', { key: 'bookOrder', ids: books.map(b => b.id) }); }
-  catch (err) { console.error('순서 저장 실패:', err); }
-}
+/* 책 재정렬·선반 이동 로직은 moveBookTo / persistLayout (상단 Render Bookshelf 영역)에 있음 */
 
 /* =============================================================
    Open Book — GSAP Animation
@@ -1968,19 +2019,26 @@ function showToast(msg) {
   try {
     await ensureDB();
     const all = await idbGetAll('books');
-    let orderRec = null;
-    try { orderRec = await idbGet('meta', 'bookOrder'); } catch (_) {}
-    if (orderRec && Array.isArray(orderRec.ids)) {
-      const pos = new Map(orderRec.ids.map((id, i) => [id, i]));
-      all.sort((a, b) => {
-        const pa = pos.has(a.id) ? pos.get(a.id) : Infinity;
-        const pb = pos.has(b.id) ? pos.get(b.id) : Infinity;
-        return pa !== pb ? pa - pb : a.createdAt - b.createdAt;   // 신규 책은 뒤로
-      });
-    } else {
-      all.sort((a, b) => a.createdAt - b.createdAt);
-    }
+    all.sort((a, b) => a.createdAt - b.createdAt);
     books = all;
+
+    // 선반 배치 로드 (없으면 기존 순서 기준 3선반 균등 분배 / 옛 bookOrder도 흡수)
+    let layoutRec = null;
+    try { layoutRec = await idbGet('meta', 'shelfLayout'); } catch (_) {}
+    if (layoutRec && Array.isArray(layoutRec.shelves) && layoutRec.shelves.length === SHELF_COUNT) {
+      shelfLayout = layoutRec.shelves.map(a => Array.isArray(a) ? a.slice() : []);
+    } else {
+      let baseIds;
+      let orderRec = null;
+      try { orderRec = await idbGet('meta', 'bookOrder'); } catch (_) {}
+      if (orderRec && Array.isArray(orderRec.ids)) {
+        baseIds = orderRec.ids.filter(id => books.some(b => b.id === id));
+        for (const b of books) if (!baseIds.includes(b.id)) baseIds.push(b.id);
+      } else {
+        baseIds = books.map(b => b.id);
+      }
+      shelfLayout = distributeShelves(baseIds, SHELF_COUNT);
+    }
   } catch (err) {
     console.error('DB 초기화 실패:', err);
     showToast('⚠️ ' + (err.message || '저장소를 열 수 없습니다'));
