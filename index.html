@@ -425,13 +425,17 @@ body {
 .pdf-controls {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 20px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
   padding: 10px 16px;
   background: rgba(46,26,8,0.5);
   border-bottom: 1px solid rgba(201,168,76,0.18);
   flex-shrink: 0;
 }
+.pdf-ctrl-group { display: flex; align-items: center; gap: 12px; }
+.pdf-zoom-btn { padding: 6px 12px; min-width: 36px; font-size: 14px; line-height: 1; }
+.pdf-zoom-info { font-size: 12px; color: var(--text-mid); min-width: 46px; text-align: center; letter-spacing: 1px; }
 
 .pdf-btn {
   padding: 6px 18px;
@@ -464,9 +468,8 @@ body {
 .pdf-canvas-wrap {
   flex: 1;
   overflow: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  display: block;
+  text-align: center;
   padding: 24px;
   background:
     radial-gradient(ellipse at center, rgba(30,15,5,0.5) 0%, var(--panel-bg) 100%);
@@ -477,7 +480,7 @@ body {
     0 4px 24px rgba(0,0,0,0.7),
     0 1px 4px rgba(0,0,0,0.5);
   display: block;
-  max-width: 100%;
+  margin: 0 auto;
 }
 
 .pdf-msg {
@@ -512,6 +515,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* ===== AI Summary ===== */
@@ -828,9 +833,17 @@ body {
     <!-- PDF Panel (left 50%) -->
     <div class="pdf-panel">
       <div class="pdf-controls">
-        <button class="pdf-btn" id="prevPageBtn" disabled>◀ 이전</button>
-        <span class="pdf-page-info" id="pageInfo">— / —</span>
-        <button class="pdf-btn" id="nextPageBtn" disabled>다음 ▶</button>
+        <div class="pdf-ctrl-group">
+          <button class="pdf-btn" id="prevPageBtn" disabled>◀ 이전</button>
+          <span class="pdf-page-info" id="pageInfo">— / —</span>
+          <button class="pdf-btn" id="nextPageBtn" disabled>다음 ▶</button>
+        </div>
+        <div class="pdf-ctrl-group">
+          <button class="pdf-btn pdf-zoom-btn" id="zoomOutBtn" title="축소" disabled>－</button>
+          <span class="pdf-zoom-info" id="zoomInfo">100%</span>
+          <button class="pdf-btn pdf-zoom-btn" id="zoomInBtn" title="확대" disabled>＋</button>
+          <button class="pdf-btn" id="zoomFitBtn" title="너비 맞춤" disabled>맞춤</button>
+        </div>
       </div>
       <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
         <div class="pdf-msg" id="pdfMsg">책을 열면 PDF가 표시됩니다</div>
@@ -843,8 +856,8 @@ body {
       <div class="memo-panel-header">
         <span class="memo-panel-title">✦ 메모장</span>
         <div class="ai-sum-btns">
-          <button class="ai-sum-btn" id="aiSummaryPageBtn" title="현재 페이지만 AI로 요약">📄 페이지</button>
-          <button class="ai-sum-btn" id="aiSummaryDocBtn" title="문서 전체를 AI로 요약">📚 전체</button>
+          <button class="ai-sum-btn" id="aiSummaryPageBtn" title="현재 페이지만 AI로 요약">📄 페이지 AI 요약</button>
+          <button class="ai-sum-btn" id="aiSummaryDocBtn" title="문서 전체를 AI로 요약">📚 전체 AI 요약</button>
         </div>
       </div>
       <div class="ai-sum-box" id="aiSummaryBox">
@@ -957,6 +970,8 @@ let totalPages  = 1;
 let pdfDoc      = null;
 let rendering   = false;
 let pendingPage = null;
+let zoomFactor  = 1;                 // 1 = 너비 맞춤(fit-to-width)
+const ZOOM_MIN = 0.4, ZOOM_MAX = 3.0, ZOOM_STEP = 0.2;
 
 /* =============================================================
    PDF.js worker
@@ -1218,6 +1233,11 @@ async function closeBook() {
   document.getElementById('prevPageBtn').disabled     = true;
   document.getElementById('nextPageBtn').disabled     = true;
   document.getElementById('pageInfo').textContent     = '— / —';
+  zoomFactor = 1;
+  document.getElementById('zoomInfo').textContent     = '100%';
+  document.getElementById('zoomOutBtn').disabled      = true;
+  document.getElementById('zoomInBtn').disabled       = true;
+  document.getElementById('zoomFitBtn').disabled      = true;
   document.getElementById('memoTextarea').value       = '';
   document.getElementById('memoList').innerHTML       = '';
   document.getElementById('memoPageTag').textContent  = '[p.1] 현재 페이지';
@@ -1270,9 +1290,10 @@ async function renderPage(num) {
     const wrap = document.getElementById('pdfCanvasWrap');
     const availW = wrap.clientWidth - 48;
 
-    const baseVP = page.getViewport({ scale: 1 });
-    const scale  = Math.min(availW / baseVP.width, 2.2);
-    const vp     = page.getViewport({ scale });
+    const baseVP   = page.getViewport({ scale: 1 });
+    const fitScale = availW / baseVP.width;
+    const scale    = fitScale * zoomFactor;
+    const vp       = page.getViewport({ scale });
 
     canvas.width  = vp.width;
     canvas.height = vp.height;
@@ -1301,6 +1322,10 @@ function syncControls() {
   document.getElementById('prevPageBtn').disabled     = currentPage <= 1;
   document.getElementById('nextPageBtn').disabled     = currentPage >= totalPages;
   document.getElementById('memoPageTag').textContent  = `[p.${currentPage}] 현재 페이지`;
+  document.getElementById('zoomInfo').textContent     = Math.round(zoomFactor * 100) + '%';
+  document.getElementById('zoomOutBtn').disabled      = zoomFactor <= ZOOM_MIN + 0.001;
+  document.getElementById('zoomInBtn').disabled       = zoomFactor >= ZOOM_MAX - 0.001;
+  document.getElementById('zoomFitBtn').disabled      = false;
 }
 
 function changePage(delta) {
@@ -1311,6 +1336,16 @@ function changePage(delta) {
 
 document.getElementById('prevPageBtn').addEventListener('click', () => changePage(-1));
 document.getElementById('nextPageBtn').addEventListener('click', () => changePage(1));
+
+function setZoom(factor) {
+  const nf = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(factor * 100) / 100));
+  if (Math.abs(nf - zoomFactor) < 0.001) { syncControls(); return; }
+  zoomFactor = nf;
+  if (pdfDoc) renderPage(currentPage); else syncControls();
+}
+document.getElementById('zoomInBtn').addEventListener('click',  () => setZoom(zoomFactor + ZOOM_STEP));
+document.getElementById('zoomOutBtn').addEventListener('click', () => setZoom(zoomFactor - ZOOM_STEP));
+document.getElementById('zoomFitBtn').addEventListener('click', () => setZoom(1));
 
 /* =============================================================
    Memos
@@ -1443,7 +1478,7 @@ async function requestSummary(content, title) {
 
 const SUMMARY_ERRORS = {
   NOTEXT:   '이 PDF에서 추출할 수 있는 텍스트가 거의 없습니다.\n스캔본이거나 텍스트가 이미지로 들어간 PDF는 요약할 수 없어요.',
-  NOTEXT_PAGE: '이 페이지에는 추출할 텍스트가 거의 없습니다.\n표지·그림 위주 페이지일 수 있어요. [📚 전체] 요약을 사용해보세요.',
+  NOTEXT_PAGE: '이 페이지에는 추출할 텍스트가 거의 없습니다.\n표지·그림 위주 페이지일 수 있어요. [📚 전체 AI 요약]을 사용해보세요.',
   NETWORK:  'AI 요약 서버에 연결할 수 없습니다.\nserver.js 실행 후( npm start ) http://localhost:3000 에서 열어주세요.',
   NOSERVER: 'AI 요약 API(/api/summarize)를 찾을 수 없습니다.\n정적 서버 대신 server.js로 실행해야 합니다 ( npm start, 포트 3000 ).',
   NOKEY:    '서버에 GROQ_API_KEY가 설정되지 않았습니다.\n.env 에 키를 넣고 server.js를 다시 시작해주세요.'
