@@ -2309,26 +2309,28 @@ async function importLibrary(file) {
 /* =============================================================
    전체 검색 (제목 · 본문 · 메모) — 본문은 백그라운드 색인
    ============================================================= */
+const FT_CAP = 30000;   // 책당 본문 색인 최대 글자 수
 async function buildFulltextIndex() {
   if (_indexing) return;
   _indexing = true; updateIndexStatus();
   let changed = false;
   for (const b of books) {
-    if (fulltextMap[b.id] != null) continue;
+    if (Array.isArray(fulltextMap[b.id])) continue;   // 이미 페이지별 색인됨 (구버전 문자열은 재색인)
     try {
       const rec = await idbGet('books', b.id);
       const buf = await rec.blob.arrayBuffer();
       const doc = await pdfjsLib.getDocument({ data: buf,
         cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
-      let txt = '';
-      for (let p = 1; p <= doc.numPages && txt.length < 20000; p++) {
+      const pages = []; let total = 0;
+      for (let p = 1; p <= doc.numPages && total < FT_CAP; p++) {
         const tc = await (await doc.getPage(p)).getTextContent();
-        txt += tc.items.map(i => i.str).join(' ') + ' ';
+        const t = tc.items.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim();
+        pages.push(t); total += t.length;
       }
       doc.destroy();
-      fulltextMap[b.id] = txt.replace(/\s+/g, ' ').trim();
+      fulltextMap[b.id] = pages;                        // [페이지1 텍스트, 페이지2 텍스트, …]
       changed = true; updateIndexStatus();
-    } catch (e) { fulltextMap[b.id] = ''; }
+    } catch (e) { fulltextMap[b.id] = []; }
     await new Promise(r => setTimeout(r, 40));
   }
   if (changed) idbPut('meta', { key: 'fulltext', map: fulltextMap }).catch(() => {});
@@ -2336,60 +2338,68 @@ async function buildFulltextIndex() {
   const si = document.getElementById('librarySearch');
   if (si && si.value.trim()) searchLibrary(si.value);
 }
+function indexedCount() { return books.filter(b => Array.isArray(fulltextMap[b.id])).length; }
 function updateIndexStatus() {
   const el = document.getElementById('searchIndexStatus');
   if (!el) return;
-  const done = books.filter(b => fulltextMap[b.id] != null).length;
-  el.textContent = _indexing ? '· 본문 색인 중… (' + done + '/' + books.length + ')' : '';
+  el.textContent = _indexing ? '· 본문 색인 중… (' + indexedCount() + '/' + books.length + ')' : '';
 }
 
+const SEARCH_MAX = 120;   // 결과 최대 개수
 let _allMemos = null;
 async function searchLibrary(query) {
   const q = (query || '').trim().toLowerCase();
   if (!q) { _allMemos = null; renderBookshelf(); return; }
-  if (Object.keys(fulltextMap).length < books.length) buildFulltextIndex();
+  if (indexedCount() < books.length) buildFulltextIndex();
   if (_allMemos === null) { try { _allMemos = await idbGetAll('memos'); } catch (e) { _allMemos = []; } }
 
   const memosByBook = {};
   for (const m of _allMemos) (memosByBook[m.bookId] = memosByBook[m.bookId] || []).push(m);
 
+  const snip = (text, i) => text.slice(Math.max(0, i - 36), i + q.length + 56);
   const results = [];
+  let bookHits = 0, capped = false;
   for (const b of books) {
     const title = b.name.replace(/\.pdf$/i, '');
-    const tags = []; let snippet = ''; let memoPage = null;
-    if (title.toLowerCase().includes(q)) tags.push({ t: '제목' });
-    const body = fulltextMap[b.id];
-    if (body && body.toLowerCase().includes(q)) {
-      tags.push({ t: '본문' });
-      const i = body.toLowerCase().indexOf(q);
-      snippet = body.slice(Math.max(0, i - 32), i + q.length + 50);
+    let hit = false;
+    if (title.toLowerCase().includes(q)) { results.push({ bookId: b.id, title, type: '제목', page: null, snippet: '' }); hit = true; }
+    const pages = fulltextMap[b.id];
+    if (Array.isArray(pages)) {
+      for (let pi = 0; pi < pages.length && results.length < SEARCH_MAX; pi++) {
+        const t = pages[pi]; if (!t) continue;
+        const i = t.toLowerCase().indexOf(q);
+        if (i >= 0) { results.push({ bookId: b.id, title, type: '본문', page: pi + 1, snippet: snip(t, i) }); hit = true; }
+      }
     }
-    const mm = (memosByBook[b.id] || []).find(m => (m.content || '').toLowerCase().includes(q));
-    if (mm) {
-      tags.push({ t: '메모', memo: true }); memoPage = mm.page;
-      if (!snippet) { const i = mm.content.toLowerCase().indexOf(q); snippet = mm.content.slice(Math.max(0, i - 32), i + q.length + 50); }
+    for (const m of (memosByBook[b.id] || [])) {
+      if (results.length >= SEARCH_MAX) break;
+      const c = m.content || ''; const i = c.toLowerCase().indexOf(q);
+      if (i >= 0) { results.push({ bookId: b.id, title, type: '메모', page: m.page, snippet: snip(c, i) }); hit = true; }
     }
-    if (tags.length) results.push({ book: b, title, tags, snippet, memoPage });
+    if (hit) bookHits++;
+    if (results.length >= SEARCH_MAX) { capped = true; break; }
   }
-  renderSearchResults(q, results);
+  renderSearchResults(q, results, bookHits, capped);
 }
 function hlText(text, q) {
   const idx = text.toLowerCase().indexOf(q);
   if (idx < 0) return escHtml(text);
   return escHtml(text.slice(0, idx)) + '<mark>' + escHtml(text.slice(idx, idx + q.length)) + '</mark>' + escHtml(text.slice(idx + q.length));
 }
-function renderSearchResults(q, results) {
+function renderSearchResults(q, results, bookHits, capped) {
   const wrap = document.getElementById('bookshelfWrap');
-  let html = '<div class="search-results"><div class="search-info">🔍 "' + escHtml(q) + '" — ' + results.length + '권 일치 <span id="searchIndexStatus"></span></div>';
+  const info = '🔍 "' + escHtml(q) + '" — ' + results.length + '개 결과 · ' + bookHits + '권' + (capped ? ' (상위 ' + SEARCH_MAX + '개)' : '') + ' <span id="searchIndexStatus"></span>';
+  let html = '<div class="search-results"><div class="search-info">' + info + '</div>';
   if (!results.length) {
-    html += '<div class="empty-hint">일치하는 책이 없습니다</div>';
+    html += '<div class="empty-hint">일치하는 결과가 없습니다</div>';
   } else {
     for (const r of results) {
-      const tags = r.tags.map(t => '<span class="search-tag ' + (t.memo ? 'memo' : '') + '">' + t.t + (t.memo && r.memoPage ? ' p.' + r.memoPage : '') + '</span>').join('');
-      html += '<div class="search-item" data-bid="' + r.book.id + '" data-page="' + (r.memoPage || '') + '">'
+      const tagCls    = r.type === '메모' ? 'memo' : '';
+      const pageLabel = r.page ? ' p.' + r.page : '';
+      html += '<div class="search-item" data-bid="' + r.bookId + '" data-page="' + (r.page || '') + '">'
             + '<div style="flex:1; min-width:0;">'
             + '<div class="search-item-title">📕 ' + escHtml(r.title) + '</div>'
-            + '<div class="search-item-tags">' + tags + '</div>'
+            + '<div class="search-item-tags"><span class="search-tag ' + tagCls + '">' + r.type + pageLabel + '</span></div>'
             + (r.snippet ? '<div class="search-snippet">…' + hlText(r.snippet, q) + '…</div>' : '')
             + '</div></div>';
     }
