@@ -586,7 +586,18 @@ body {
   box-shadow: 3px 0 0 rgba(201,168,76,0.6), -3px 0 0 rgba(201,168,76,0.6);
 }
 /* 드래그 중에는 캔버스를 폭에 맞춰 스케일(릴리즈 시 선명하게 재렌더) */
+#pdfCanvasWrap.resizing .pdf-page { max-width: 100%; }
 #pdfCanvasWrap.resizing #pdfCanvas { max-width: 100%; height: auto; }
+#pdfCanvasWrap.resizing .textLayer { display: none; }
+
+/* PDF 텍스트 선택 레이어 (캔버스 위 투명 글자) */
+.pdf-page { position: relative; display: inline-block; margin: 0 auto; line-height: 0; }
+.textLayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; text-align: initial; opacity: 1; forced-color-adjust: none; text-size-adjust: none; -webkit-text-size-adjust: none; z-index: 2; }
+.textLayer span, .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.textLayer ::selection { background: rgba(120,150,210,0.5); }
+.textLayer ::-moz-selection { background: rgba(120,150,210,0.5); }
+.ask-sel-btn { position: fixed; z-index: 2500; display: none; background: linear-gradient(135deg,#7a5810,#c9a84c); color:#1a1008; border:none; border-radius:6px; padding:7px 12px; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.5); font-family: inherit; white-space: nowrap; }
+.ask-sel-btn:hover { background: linear-gradient(135deg,#c9a84c,#e8c870); }
 
 /* ===== PDF Panel ===== */
 .pdf-panel {
@@ -1090,7 +1101,11 @@ body {
       </div>
       <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
         <div class="pdf-msg" id="pdfMsg">책을 열면 PDF가 표시됩니다</div>
-        <canvas id="pdfCanvas" style="display:none;"></canvas>
+        <div class="pdf-page" id="pdfPage" style="display:none;">
+          <canvas id="pdfCanvas"></canvas>
+          <div class="textLayer" id="pdfTextLayer"></div>
+        </div>
+        <button class="ask-sel-btn" id="askSelBtn">✨ 이 부분 질문</button>
       </div>
     </div>
 
@@ -1714,7 +1729,9 @@ async function closeBook() {
 
   const canvas = document.getElementById('pdfCanvas');
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-  canvas.style.display = 'none';
+  document.getElementById('pdfPage').style.display = 'none';
+  document.getElementById('pdfTextLayer').innerHTML = '';
+  if (window.hideAskSel) window.hideAskSel();
 
   const msg = document.getElementById('pdfMsg');
   msg.style.display  = 'flex';
@@ -1742,12 +1759,12 @@ async function closeBook() {
    PDF Loading & Rendering
    ============================================================= */
 async function loadPDF(book) {
-  const msg    = document.getElementById('pdfMsg');
-  const canvas = document.getElementById('pdfCanvas');
+  const msg     = document.getElementById('pdfMsg');
+  const pdfPage = document.getElementById('pdfPage');
 
   msg.textContent   = 'PDF 불러오는 중...';
   msg.style.display = 'flex';
-  canvas.style.display = 'none';
+  pdfPage.style.display = 'none';
 
   try {
     // Always re-fetch from DB so we get a fresh Blob handle
@@ -1768,8 +1785,8 @@ async function loadPDF(book) {
     openToPage = null;
     setProgress(book.id, currentPage, totalPages);
 
-    msg.style.display    = 'none';
-    canvas.style.display = 'block';
+    msg.style.display     = 'none';
+    pdfPage.style.display = 'inline-block';
     await renderPage(currentPage);
   } catch (err) {
     msg.textContent = `PDF 로드 실패: ${err.message}`;
@@ -1805,6 +1822,9 @@ async function renderPage(num) {
 
     currentPage = num;
     syncControls();
+
+    // 선택용 텍스트 레이어 — 비차단(실패/지연이 페이지 렌더를 막지 않도록 await 안 함)
+    renderTextLayerFor(page, vp);
   } catch (err) {
     if (!err || err.name !== 'RenderingCancelledException') console.error('Render error:', err);
   } finally {
@@ -1815,6 +1835,19 @@ async function renderPage(num) {
       renderPage(p);
     }
   }
+}
+
+async function renderTextLayerFor(page, vp) {
+  const tl = document.getElementById('pdfTextLayer');
+  if (!tl) return;
+  tl.innerHTML = '';
+  tl.style.setProperty('--scale-factor', vp.scale);
+  if (window.hideAskSel) window.hideAskSel();
+  try {
+    const tc = await page.getTextContent();
+    const task = pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp });
+    await Promise.race([ task.promise, new Promise((_, rej) => setTimeout(() => rej(new Error('tl-timeout')), 4000)) ]);
+  } catch (e) { /* 텍스트 없음/지연 — 선택 비활성, 페이지 표시는 정상 */ }
 }
 
 function syncControls() {
@@ -2668,6 +2701,42 @@ function renderStats(s) {
   };
   resizer.addEventListener('pointerup', end);
   resizer.addEventListener('pointercancel', end);
+})();
+
+/* =============================================================
+   PDF 텍스트 선택 → AI에 질문
+   ============================================================= */
+(() => {
+  const btn = document.getElementById('askSelBtn');
+  const tl  = document.getElementById('pdfTextLayer');
+  let selText = '';
+  function hide() { btn.style.display = 'none'; selText = ''; }
+  window.hideAskSel = hide;
+
+  function onSelect() {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().trim() : '';
+    if (!text || !sel.rangeCount) { hide(); return; }
+    const range = sel.getRangeAt(0);
+    if (!tl.contains(range.commonAncestorContainer)) { hide(); return; }   // 텍스트 레이어 내 선택만
+    selText = text;
+    const r = range.getBoundingClientRect();
+    btn.style.display = 'block';
+    btn.style.left = Math.min(window.innerWidth - 130, Math.max(8, r.left + r.width / 2 - 60)) + 'px';
+    btn.style.top  = Math.max(8, r.top - 42) + 'px';
+  }
+  document.addEventListener('mouseup', () => setTimeout(onSelect, 10));
+  btn.addEventListener('mousedown', e => e.preventDefault());   // 클릭 시 선택 해제 방지
+  btn.addEventListener('click', () => {
+    const t = selText.slice(0, 1000);
+    hide();
+    try { window.getSelection().removeAllRanges(); } catch (e) {}
+    if (!t || !currentBook) return;
+    switchPane('chat');
+    const input = document.getElementById('chatInput');
+    input.value = `다음 부분을 설명해줘:\n"${t}"`;
+    sendChat();
+  });
 })();
 
 /* =============================================================
