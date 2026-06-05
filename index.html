@@ -1801,6 +1801,25 @@ function changePage(delta) {
 document.getElementById('prevPageBtn').addEventListener('click', () => changePage(-1));
 document.getElementById('nextPageBtn').addEventListener('click', () => changePage(1));
 
+/* 스크롤로 페이지 넘김: 페이지 안에서 스크롤할 여지가 있으면 일반 스크롤,
+   맨 위/아래 가장자리에서 더 스크롤하면 이전/다음 페이지로 이동 */
+let _wheelLock = false;
+document.getElementById('pdfCanvasWrap').addEventListener('wheel', e => {
+  if (!pdfDoc) return;
+  const wrap     = e.currentTarget;
+  const down     = e.deltaY > 0;
+  const atTop    = wrap.scrollTop <= 0;
+  const atBottom = wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 1;
+  if ((down && !atBottom) || (!down && !atTop)) return;                              // 페이지 내부 스크롤
+  if ((down && currentPage >= totalPages) || (!down && currentPage <= 1)) return;    // 문서 끝
+  if (_wheelLock) return;                                                            // 연속 넘김 방지
+  e.preventDefault();
+  _wheelLock = true;
+  renderPage(currentPage + (down ? 1 : -1));
+  wrap.scrollTop = 0;
+  setTimeout(() => { _wheelLock = false; }, 320);
+}, { passive: false });
+
 function setZoom(factor) {
   const nf = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(factor * 100) / 100));
   if (Math.abs(nf - zoomFactor) < 0.001) { syncControls(); return; }
