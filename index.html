@@ -237,6 +237,31 @@ body {
 .search-snippet { color: var(--text-mid); font-size: 12px; line-height: 1.65; word-break: break-word; }
 .search-snippet mark { background: rgba(201,168,76,0.35); color: var(--text); padding: 0 2px; border-radius: 2px; }
 
+/* 읽기 모드 필터 (세피아 / 야간 반전) */
+#pdfCanvasWrap.mode-sepia { background: radial-gradient(ellipse at center, #241a0e 0%, #160f06 100%); }
+#pdfCanvasWrap.mode-sepia #pdfCanvas { filter: sepia(0.6) contrast(0.92) brightness(0.98); }
+#pdfCanvasWrap.mode-night #pdfCanvas { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.95); }
+
+/* 앰비언트 사운드 위젯 */
+#ambientWidget { position: fixed; right: 18px; bottom: 18px; z-index: 3000; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+#ambientToggle { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--gold-dim); background: rgba(20,12,5,0.92); color: var(--gold); font-size: 20px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.5); transition: all 0.2s; }
+#ambientToggle:hover { transform: scale(1.06); border-color: var(--gold); }
+#ambientToggle.playing { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,168,76,0.25), 0 4px 16px rgba(0,0,0,0.5); }
+#ambientPanel { width: 212px; background: rgba(20,12,5,0.97); border: 1px solid var(--gold-dim); border-radius: 12px; padding: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+#ambientPanel.hidden { display: none; }
+.amb-title { font-size: 12px; color: var(--gold); letter-spacing: 1px; text-align: center; margin-bottom: 12px; }
+.amb-sounds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.amb-sound { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 6px; background: rgba(255,255,255,0.04); border: 1px solid var(--gold-dim); border-radius: 8px; color: var(--text); font-size: 18px; cursor: pointer; transition: all 0.18s; }
+.amb-sound span { font-size: 11px; color: var(--text-mid); }
+.amb-sound:hover { background: rgba(201,168,76,0.12); }
+.amb-sound.on { background: rgba(201,168,76,0.22); border-color: var(--gold); }
+.amb-sound.on span { color: var(--gold-light); }
+.amb-vol-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.amb-vol-row span { font-size: 12px; color: var(--text-mid); }
+#ambVol { flex: 1; accent-color: var(--gold); }
+.amb-stop { width: 100%; background: rgba(180,60,60,0.12); border: 1px solid rgba(200,80,80,0.3); color: rgba(220,130,130,0.9); border-radius: 8px; padding: 7px; cursor: pointer; font-size: 12px; transition: all 0.18s; }
+.amb-stop:hover { background: rgba(180,60,60,0.22); }
+
 .shelf-plank {
   height: 26px;
   background:
@@ -1007,6 +1032,7 @@ body {
           <span class="pdf-zoom-info" id="zoomInfo">100%</span>
           <button class="pdf-btn pdf-zoom-btn" id="zoomInBtn" title="확대" disabled>＋</button>
           <button class="pdf-btn" id="zoomFitBtn" title="너비 맞춤" disabled>맞춤</button>
+          <button class="pdf-btn" id="readModeBtn" title="읽기 모드 (보통/세피아/야간)">☀️ 보통</button>
         </div>
       </div>
       <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
@@ -1072,6 +1098,22 @@ body {
 
 <!-- Toast -->
 <div id="toast"></div>
+
+<!-- Ambient Sound -->
+<div id="ambientWidget">
+  <div id="ambientPanel" class="hidden">
+    <div class="amb-title">🎧 앰비언트 사운드</div>
+    <div class="amb-sounds">
+      <button class="amb-sound" data-snd="rain">🌧️<span>비</span></button>
+      <button class="amb-sound" data-snd="ocean">🌊<span>파도</span></button>
+      <button class="amb-sound" data-snd="fire">🔥<span>벽난로</span></button>
+      <button class="amb-sound" data-snd="wind">🍃<span>바람</span></button>
+    </div>
+    <div class="amb-vol-row"><span>🔈</span><input type="range" id="ambVol" min="0" max="100" value="50"><span>🔊</span></div>
+    <button class="amb-stop" id="ambStop">■ 끄기</button>
+  </div>
+  <button id="ambientToggle" title="앰비언트 사운드">🎧</button>
+</div>
 
 <script>
 /* =============================================================
@@ -2291,6 +2333,128 @@ function renderSearchResults(q, results) {
   document.getElementById('backupBtn').addEventListener('click', exportLibrary);
   document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('restoreInput').click());
   document.getElementById('restoreInput').addEventListener('change', e => { importLibrary(e.target.files[0]); e.target.value = ''; });
+})();
+
+/* =============================================================
+   읽기 모드 (보통 / 세피아 / 야간 반전)
+   ============================================================= */
+const READ_MODES  = ['normal', 'sepia', 'night'];
+const READ_LABELS = { normal: '☀️ 보통', sepia: '📜 세피아', night: '🌙 야간' };
+let readMode = localStorage.getItem('readMode') || 'normal';
+function applyReadMode(mode) {
+  readMode = READ_MODES.includes(mode) ? mode : 'normal';
+  const wrap = document.getElementById('pdfCanvasWrap');
+  if (wrap) { wrap.classList.remove('mode-sepia', 'mode-night'); if (readMode !== 'normal') wrap.classList.add('mode-' + readMode); }
+  const btn = document.getElementById('readModeBtn');
+  if (btn) btn.textContent = READ_LABELS[readMode];
+  try { localStorage.setItem('readMode', readMode); } catch (e) {}
+}
+document.getElementById('readModeBtn').addEventListener('click', () => {
+  applyReadMode(READ_MODES[(READ_MODES.indexOf(readMode) + 1) % READ_MODES.length]);
+});
+applyReadMode(readMode);
+
+/* =============================================================
+   앰비언트 사운드 (Web Audio 합성 — 외부 파일 없음)
+   ============================================================= */
+const Ambient = {
+  ctx: null, master: null, current: null, nodes: [], timers: [],
+  vol: (parseInt(localStorage.getItem('ambVol') || '50', 10) / 100),
+  ensure() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.vol;
+      this.master.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  noiseBuf(seconds, brown) {
+    const len = Math.floor(this.ctx.sampleRate * seconds);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    if (brown) { let last = 0; for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; d[i] = last * 3.2; } }
+    else { for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1; }
+    return buf;
+  },
+  loopSrc(brown) { const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf(4, brown); s.loop = true; s.start(); this.nodes.push(s); return s; },
+  stop() {
+    this.timers.forEach(t => clearTimeout(t));
+    this.nodes.forEach(n => { try { if (n.stop) n.stop(); } catch (e) {} try { n.disconnect(); } catch (e) {} });
+    this.nodes = []; this.timers = []; this.current = null;
+    this.updateUI();
+  },
+  play(snd) {
+    this.ensure();
+    this.stop();
+    this.current = snd;                     // crackle 가드가 'fire'를 인식하도록 먼저 설정
+    const ctx = this.ctx, out = this.master;
+    if (snd === 'rain') {
+      const s = this.loopSrc(false);
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';  lp.frequency.value = 8000;
+      const g  = ctx.createGain(); g.gain.value = 0.5;
+      s.connect(hp); hp.connect(lp); lp.connect(g); g.connect(out);
+      this.nodes.push(hp, lp, g);
+    } else if (snd === 'ocean') {
+      const s = this.loopSrc(true);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500;
+      const g  = ctx.createGain(); g.gain.value = 0.4;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.09;
+      const lfoG = ctx.createGain(); lfoG.gain.value = 0.3;
+      lfo.connect(lfoG); lfoG.connect(g.gain); lfo.start();
+      s.connect(lp); lp.connect(g); g.connect(out);
+      this.nodes.push(lp, g, lfo, lfoG);
+    } else if (snd === 'wind') {
+      const s = this.loopSrc(false);
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.7;
+      const g  = ctx.createGain(); g.gain.value = 0.55;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.13;
+      const lfoG = ctx.createGain(); lfoG.gain.value = 350;
+      lfo.connect(lfoG); lfoG.connect(bp.frequency); lfo.start();
+      s.connect(bp); bp.connect(g); g.connect(out);
+      this.nodes.push(bp, g, lfo, lfoG);
+    } else if (snd === 'fire') {
+      const s = this.loopSrc(true);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+      const g  = ctx.createGain(); g.gain.value = 0.4;
+      s.connect(lp); lp.connect(g); g.connect(out);
+      this.nodes.push(lp, g);
+      const crackBuf = this.noiseBuf(0.12, false);   // 짧은 버퍼 재사용
+      const crackle = () => {
+        if (this.current !== 'fire' || !this.ctx) return;
+        const b = ctx.createBufferSource(); b.buffer = crackBuf;
+        const cf = ctx.createBiquadFilter(); cf.type = 'bandpass'; cf.frequency.value = 1400 + Math.random() * 1600;
+        const cg = ctx.createGain(); const t = ctx.currentTime;
+        cg.gain.setValueAtTime(0.0001, t);
+        cg.gain.linearRampToValueAtTime(0.4 + Math.random() * 0.5, t + 0.005);
+        cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+        b.connect(cf); cf.connect(cg); cg.connect(out); b.start(t); b.stop(t + 0.09);
+        this.timers.push(setTimeout(crackle, 50 + Math.random() * 260));
+      };
+      crackle();
+    }
+    this.updateUI();
+  },
+  setVol(v) { this.vol = v; if (this.master) this.master.gain.value = v; try { localStorage.setItem('ambVol', Math.round(v * 100)); } catch (e) {} },
+  updateUI() {
+    document.querySelectorAll('.amb-sound').forEach(b => b.classList.toggle('on', b.dataset.snd === this.current));
+    const tg = document.getElementById('ambientToggle');
+    if (tg) tg.classList.toggle('playing', !!this.current);
+  }
+};
+(() => {
+  document.getElementById('ambientToggle').addEventListener('click', () => {
+    document.getElementById('ambientPanel').classList.toggle('hidden');
+  });
+  document.querySelectorAll('.amb-sound').forEach(b => {
+    b.addEventListener('click', () => { Ambient.current === b.dataset.snd ? Ambient.stop() : Ambient.play(b.dataset.snd); });
+  });
+  document.getElementById('ambStop').addEventListener('click', () => Ambient.stop());
+  const vol = document.getElementById('ambVol');
+  vol.value = Math.round(Ambient.vol * 100);
+  vol.addEventListener('input', () => Ambient.setVol(vol.value / 100));
 })();
 
 /* =============================================================
