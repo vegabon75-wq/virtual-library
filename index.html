@@ -565,6 +565,29 @@ body {
   overflow: hidden;
 }
 
+/* PDF/메모 사이 드래그 구분선 */
+.ws-resizer {
+  flex: 0 0 7px;
+  cursor: col-resize;
+  background: rgba(201,168,76,0.12);
+  position: relative;
+  z-index: 5;
+  transition: background 0.15s;
+}
+.ws-resizer:hover, .ws-resizer.dragging { background: rgba(201,168,76,0.4); }
+.ws-resizer::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px; height: 32px;
+  background: rgba(201,168,76,0.6);
+  border-radius: 1px;
+  box-shadow: 3px 0 0 rgba(201,168,76,0.6), -3px 0 0 rgba(201,168,76,0.6);
+}
+/* 드래그 중에는 캔버스를 폭에 맞춰 스케일(릴리즈 시 선명하게 재렌더) */
+#pdfCanvasWrap.resizing #pdfCanvas { max-width: 100%; height: auto; }
+
 /* ===== PDF Panel ===== */
 .pdf-panel {
   flex: 1;
@@ -1068,6 +1091,9 @@ body {
         <canvas id="pdfCanvas" style="display:none;"></canvas>
       </div>
     </div>
+
+    <!-- Resizer (드래그로 PDF/메모 크기 조절) -->
+    <div class="ws-resizer" id="wsResizer" title="드래그하여 크기 조절"></div>
 
     <!-- Memo Panel (right 50%) -->
     <div class="memo-panel">
@@ -2574,6 +2600,53 @@ function renderStats(s) {
   document.getElementById('statsBtn').addEventListener('click', openStats);
   document.getElementById('statsClose').addEventListener('click', () => modal.classList.add('hidden'));
   modal.addEventListener('click', e => { if (e.target === modal || e.target.classList.contains('stats-backdrop')) modal.classList.add('hidden'); });
+})();
+
+/* =============================================================
+   PDF / 메모 패널 크기 조절 (드래그 구분선)
+   ============================================================= */
+(() => {
+  const resizer  = document.getElementById('wsResizer');
+  const pdfPanel = document.querySelector('.pdf-panel');
+  const body     = document.querySelector('.ws-body');
+  if (!resizer || !pdfPanel || !body) return;
+
+  const clamp = pct => Math.max(25, Math.min(75, pct));
+  function applyRatio(pct) { pdfPanel.style.flex = '0 0 ' + clamp(pct) + '%'; }
+
+  const saved = parseFloat(localStorage.getItem('wsSplit'));
+  if (!isNaN(saved)) applyRatio(saved);
+
+  let dragging = false;
+  const wrap = () => document.getElementById('pdfCanvasWrap');
+
+  resizer.addEventListener('pointerdown', e => {
+    dragging = true;
+    resizer.classList.add('dragging');
+    wrap() && wrap().classList.add('resizing');
+    try { resizer.setPointerCapture(e.pointerId); } catch (_) {}
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  resizer.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const rect = body.getBoundingClientRect();
+    applyRatio((e.clientX - rect.left) / rect.width * 100);
+  });
+  const end = e => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    if (wrap()) wrap().classList.remove('resizing');
+    try { resizer.releasePointerCapture(e.pointerId); } catch (_) {}
+    document.body.style.userSelect = '';
+    const rect = body.getBoundingClientRect();
+    const pct  = clamp(pdfPanel.getBoundingClientRect().width / rect.width * 100);
+    try { localStorage.setItem('wsSplit', pct.toFixed(1)); } catch (_) {}
+    if (pdfDoc) renderPage(currentPage);   // 새 폭에 맞춰 선명하게 재렌더
+  };
+  resizer.addEventListener('pointerup', end);
+  resizer.addEventListener('pointercancel', end);
 })();
 
 /* =============================================================
