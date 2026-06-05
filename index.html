@@ -202,6 +202,41 @@ body {
 .shelf-books-row.drop-target { box-shadow: inset 0 0 0 2px rgba(201,168,76,0.45); }
 .empty-hint { text-align: center; color: var(--text-dim); font-size: 13px; padding: 24px 16px; }
 
+/* 책등 진행률 바 */
+.book-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,0.4); z-index: 2; }
+.book-progress-fill { height: 100%; width: 0; background: var(--gold); transition: width 0.3s; }
+
+/* 검색 입력 / 헤더 아이콘 버튼 */
+.lib-search-input {
+  background: rgba(46,26,8,0.55); border: 1px solid var(--gold-dim); border-radius: 6px;
+  color: var(--text); padding: 7px 12px; font-size: 13px; width: 210px; outline: none;
+  font-family: inherit; transition: width 0.2s, border-color 0.2s;
+}
+.lib-search-input:focus { border-color: var(--gold); width: 280px; }
+.lib-search-input::placeholder { color: var(--text-dim); }
+.icon-btn {
+  background: rgba(46,26,8,0.55); border: 1px solid var(--gold-dim); border-radius: 6px;
+  color: var(--gold); width: 36px; height: 34px; cursor: pointer; font-size: 15px; transition: all 0.2s;
+}
+.icon-btn:hover { background: rgba(201,168,76,0.18); border-color: var(--gold); }
+
+/* 검색 결과 */
+.search-results { padding: 8px 2px 40px; }
+.search-info { color: var(--text-mid); font-size: 13px; padding: 10px 12px 16px; }
+#searchIndexStatus { color: var(--gold-dim); font-size: 11px; margin-left: 8px; }
+.search-item {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px;
+  border: 1px solid rgba(201,168,76,0.15); border-radius: 8px; margin-bottom: 8px;
+  cursor: pointer; background: rgba(46,26,8,0.3); transition: all 0.18s;
+}
+.search-item:hover { border-color: var(--gold-dim); background: rgba(46,26,8,0.6); transform: translateX(2px); }
+.search-item-title { color: var(--gold-light); font-size: 14px; margin-bottom: 5px; }
+.search-item-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 5px; }
+.search-tag { font-size: 10px; padding: 2px 7px; border-radius: 4px; background: rgba(201,168,76,0.15); color: var(--gold); }
+.search-tag.memo { background: rgba(120,150,210,0.15); color: #aec0ee; }
+.search-snippet { color: var(--text-mid); font-size: 12px; line-height: 1.65; word-break: break-word; }
+.search-snippet mark { background: rgba(201,168,76,0.35); color: var(--text); padding: 0 2px; border-radius: 2px; }
+
 .shelf-plank {
   height: 26px;
   background:
@@ -909,11 +944,15 @@ body {
     </div>
   </div>
   <div class="header-right">
+    <input type="search" id="librarySearch" class="lib-search-input" placeholder="🔍 제목·본문·메모 검색…">
     <span class="book-count-badge" id="bookCountBadge">책 0권</span>
+    <button class="icon-btn" id="backupBtn" title="라이브러리 백업(내보내기)">💾</button>
+    <button class="icon-btn" id="restoreBtn" title="백업 복원(불러오기)">📥</button>
     <button class="import-btn" onclick="document.getElementById('folderInput').click()">
       ＋ 폴더 추가
     </button>
     <input type="file" id="folderInput" webkitdirectory multiple>
+    <input type="file" id="restoreInput" accept="application/json,.json" style="display:none">
   </div>
 </header>
 
@@ -1137,6 +1176,15 @@ async function idbGetByIndex(store, indexName, val) {
   });
 }
 
+async function idbClear(store) {
+  const d = await ensureDB();
+  return new Promise((res, rej) => {
+    const r = d.transaction(store, 'readwrite').objectStore(store).clear();
+    r.onsuccess = () => res();
+    r.onerror   = ev => rej(ev.target.error);
+  });
+}
+
 /* =============================================================
    App State
    ============================================================= */
@@ -1150,6 +1198,10 @@ let pendingPage = null;
 let zoomFactor  = 1;                 // 1 = 너비 맞춤(fit-to-width)
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3.0, ZOOM_STEP = 0.2;
 let dragSrcId   = null;              // 드래그 중인 책 id (순서 변경용)
+let progressMap = {};                // bookId → { page, total }  (이어 읽기/진행률)
+let fulltextMap = {};                // bookId → 추출 본문 (검색 색인)
+let openToPage  = null;              // 다음 openBook 때 열 페이지 (검색 결과/메모 점프)
+let _indexing   = false;
 
 /* =============================================================
    PDF.js worker
@@ -1254,6 +1306,8 @@ function makeBookEl(book, shelfIdx) {
   const bg     = PALETTES[book.id % PALETTES.length];
   const height = BOOK_HEIGHTS[book.id % BOOK_HEIGHTS.length];
   const title  = book.name.replace(/\.pdf$/i, '');
+  const prog   = progressMap[book.id];
+  const pct    = (prog && prog.total > 1) ? Math.min(100, Math.round(prog.page / prog.total * 100)) : 0;
 
   const el = document.createElement('div');
   el.className   = 'book';
@@ -1263,6 +1317,7 @@ function makeBookEl(book, shelfIdx) {
     <div class="book-spine" style="background:${bg};">
       <span class="book-title-vert">${escHtml(title)}</span>
       <div class="book-band"></div>
+      <div class="book-progress"><div class="book-progress-fill" style="width:${pct}%"></div></div>
     </div>
     <button class="book-del" title="이 책 삭제">✕</button>`;
   el.draggable = true;
@@ -1584,7 +1639,12 @@ async function loadPDF(book) {
       cMapPacked: true,
     }).promise;
     totalPages = pdfDoc.numPages;
-    currentPage = 1;
+    const saved = progressMap[book.id];
+    currentPage = (openToPage && openToPage >= 1 && openToPage <= totalPages) ? openToPage
+                : (saved && saved.page >= 1 && saved.page <= totalPages)      ? saved.page
+                : 1;
+    openToPage = null;
+    setProgress(book.id, currentPage, totalPages);
 
     msg.style.display    = 'none';
     canvas.style.display = 'block';
@@ -1606,6 +1666,7 @@ async function renderPage(num) {
     const page = await pdfDoc.getPage(num);
     const wrap = document.getElementById('pdfCanvasWrap');
     const availW = wrap.clientWidth - 48;
+    if (availW <= 0) return;   // 워크스페이스가 숨겨져 폭이 0이면 렌더 스킵
 
     const baseVP   = page.getViewport({ scale: 1 });
     const fitScale = availW / baseVP.width;
@@ -1623,7 +1684,7 @@ async function renderPage(num) {
     currentPage = num;
     syncControls();
   } catch (err) {
-    console.error('Render error:', err);
+    if (!err || err.name !== 'RenderingCancelledException') console.error('Render error:', err);
   } finally {
     rendering = false;
     if (pendingPage !== null) {
@@ -1643,6 +1704,7 @@ function syncControls() {
   document.getElementById('zoomOutBtn').disabled      = zoomFactor <= ZOOM_MIN + 0.001;
   document.getElementById('zoomInBtn').disabled       = zoomFactor >= ZOOM_MAX - 0.001;
   document.getElementById('zoomFitBtn').disabled      = false;
+  if (currentBook) setProgress(currentBook.id, currentPage, totalPages);   // 이어 읽기 진행률 기록
 }
 
 function changePage(delta) {
@@ -2038,6 +2100,200 @@ function showToast(msg) {
 }
 
 /* =============================================================
+   이어 읽기 / 진행률 저장
+   ============================================================= */
+let _progTimer;
+function setProgress(bookId, page, total) {
+  const prev = progressMap[bookId];
+  if (prev && prev.page === page && prev.total === total) return;
+  progressMap[bookId] = { page, total };
+  updateSpineProgress(bookId);
+  clearTimeout(_progTimer);
+  _progTimer = setTimeout(() => { idbPut('meta', { key: 'progress', map: progressMap }).catch(() => {}); }, 400);
+}
+function updateSpineProgress(bookId) {
+  const fill = document.querySelector('.book[data-bid="' + bookId + '"] .book-progress-fill');
+  if (!fill) return;
+  const p = progressMap[bookId];
+  fill.style.width = (p && p.total > 1 ? Math.min(100, Math.round(p.page / p.total * 100)) : 0) + '%';
+}
+
+/* =============================================================
+   백업 / 복원 (전체 라이브러리 → JSON 파일)
+   ============================================================= */
+function abToB64(buf) {
+  const bytes = new Uint8Array(buf); let bin = ''; const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return btoa(bin);
+}
+function b64ToAb(b64) {
+  const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+async function exportLibrary() {
+  try {
+    showToast('백업 만드는 중…');
+    const [booksArr, memosArr, chatsArr, metaArr] = await Promise.all([
+      idbGetAll('books'), idbGetAll('memos'), idbGetAll('chats'), idbGetAll('meta')
+    ]);
+    const booksOut = [];
+    for (const b of booksArr) {
+      const buf = await b.blob.arrayBuffer();
+      booksOut.push({ id: b.id, name: b.name, fileName: b.fileName, createdAt: b.createdAt,
+                      blobType: (b.blob.type || 'application/pdf'), blobB64: abToB64(buf) });
+    }
+    const data = { app: 'virtual-library', version: 1, exportedAt: Date.now(),
+                   books: booksOut, memos: memosArr, chats: chatsArr, meta: metaArr };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'virtual-library-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('백업 완료 — 책 ' + booksOut.length + '권 내보냄');
+  } catch (err) { console.error('백업 실패:', err); showToast('⚠️ 백업 실패: ' + (err.message || '')); }
+}
+async function importLibrary(file) {
+  if (!file) return;
+  if (!confirm('백업을 불러오면 현재 라이브러리(책·메모·대화·배치)를 모두 대체합니다.\n계속할까요?')) return;
+  try {
+    showToast('복원 중…');
+    const data = JSON.parse(await file.text());
+    if (!data || data.app !== 'virtual-library' || !Array.isArray(data.books)) {
+      showToast('⚠️ 올바른 백업 파일이 아닙니다'); return;
+    }
+    for (const s of ['books', 'memos', 'chats', 'meta']) await idbClear(s);
+    for (const b of data.books) {
+      const blob = new Blob([b64ToAb(b.blobB64)], { type: b.blobType || 'application/pdf' });
+      await idbPut('books', { id: b.id, name: b.name, fileName: b.fileName, createdAt: b.createdAt, blob });
+    }
+    for (const m of (data.memos || [])) await idbPut('memos', m);
+    for (const c of (data.chats || [])) await idbPut('chats', c);
+    for (const mt of (data.meta || [])) await idbPut('meta', mt);
+    showToast('복원 완료 — 새로고침합니다');
+    setTimeout(() => location.reload(), 900);
+  } catch (err) { console.error('복원 실패:', err); showToast('⚠️ 복원 실패: ' + (err.message || '')); }
+}
+
+/* =============================================================
+   전체 검색 (제목 · 본문 · 메모) — 본문은 백그라운드 색인
+   ============================================================= */
+async function buildFulltextIndex() {
+  if (_indexing) return;
+  _indexing = true; updateIndexStatus();
+  let changed = false;
+  for (const b of books) {
+    if (fulltextMap[b.id] != null) continue;
+    try {
+      const rec = await idbGet('books', b.id);
+      const buf = await rec.blob.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf,
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true }).promise;
+      let txt = '';
+      for (let p = 1; p <= doc.numPages && txt.length < 20000; p++) {
+        const tc = await (await doc.getPage(p)).getTextContent();
+        txt += tc.items.map(i => i.str).join(' ') + ' ';
+      }
+      doc.destroy();
+      fulltextMap[b.id] = txt.replace(/\s+/g, ' ').trim();
+      changed = true; updateIndexStatus();
+    } catch (e) { fulltextMap[b.id] = ''; }
+    await new Promise(r => setTimeout(r, 40));
+  }
+  if (changed) idbPut('meta', { key: 'fulltext', map: fulltextMap }).catch(() => {});
+  _indexing = false; updateIndexStatus();
+  const si = document.getElementById('librarySearch');
+  if (si && si.value.trim()) searchLibrary(si.value);
+}
+function updateIndexStatus() {
+  const el = document.getElementById('searchIndexStatus');
+  if (!el) return;
+  const done = books.filter(b => fulltextMap[b.id] != null).length;
+  el.textContent = _indexing ? '· 본문 색인 중… (' + done + '/' + books.length + ')' : '';
+}
+
+let _allMemos = null;
+async function searchLibrary(query) {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) { _allMemos = null; renderBookshelf(); return; }
+  if (Object.keys(fulltextMap).length < books.length) buildFulltextIndex();
+  if (_allMemos === null) { try { _allMemos = await idbGetAll('memos'); } catch (e) { _allMemos = []; } }
+
+  const memosByBook = {};
+  for (const m of _allMemos) (memosByBook[m.bookId] = memosByBook[m.bookId] || []).push(m);
+
+  const results = [];
+  for (const b of books) {
+    const title = b.name.replace(/\.pdf$/i, '');
+    const tags = []; let snippet = ''; let memoPage = null;
+    if (title.toLowerCase().includes(q)) tags.push({ t: '제목' });
+    const body = fulltextMap[b.id];
+    if (body && body.toLowerCase().includes(q)) {
+      tags.push({ t: '본문' });
+      const i = body.toLowerCase().indexOf(q);
+      snippet = body.slice(Math.max(0, i - 32), i + q.length + 50);
+    }
+    const mm = (memosByBook[b.id] || []).find(m => (m.content || '').toLowerCase().includes(q));
+    if (mm) {
+      tags.push({ t: '메모', memo: true }); memoPage = mm.page;
+      if (!snippet) { const i = mm.content.toLowerCase().indexOf(q); snippet = mm.content.slice(Math.max(0, i - 32), i + q.length + 50); }
+    }
+    if (tags.length) results.push({ book: b, title, tags, snippet, memoPage });
+  }
+  renderSearchResults(q, results);
+}
+function hlText(text, q) {
+  const idx = text.toLowerCase().indexOf(q);
+  if (idx < 0) return escHtml(text);
+  return escHtml(text.slice(0, idx)) + '<mark>' + escHtml(text.slice(idx, idx + q.length)) + '</mark>' + escHtml(text.slice(idx + q.length));
+}
+function renderSearchResults(q, results) {
+  const wrap = document.getElementById('bookshelfWrap');
+  let html = '<div class="search-results"><div class="search-info">🔍 "' + escHtml(q) + '" — ' + results.length + '권 일치 <span id="searchIndexStatus"></span></div>';
+  if (!results.length) {
+    html += '<div class="empty-hint">일치하는 책이 없습니다</div>';
+  } else {
+    for (const r of results) {
+      const tags = r.tags.map(t => '<span class="search-tag ' + (t.memo ? 'memo' : '') + '">' + t.t + (t.memo && r.memoPage ? ' p.' + r.memoPage : '') + '</span>').join('');
+      html += '<div class="search-item" data-bid="' + r.book.id + '" data-page="' + (r.memoPage || '') + '">'
+            + '<div style="flex:1; min-width:0;">'
+            + '<div class="search-item-title">📕 ' + escHtml(r.title) + '</div>'
+            + '<div class="search-item-tags">' + tags + '</div>'
+            + (r.snippet ? '<div class="search-snippet">…' + hlText(r.snippet, q) + '…</div>' : '')
+            + '</div></div>';
+    }
+  }
+  html += '</div>';
+  wrap.innerHTML = html;
+  updateIndexStatus();
+  wrap.querySelectorAll('.search-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const bid  = Number(item.dataset.bid);
+      const book = books.find(b => b.id === bid);
+      if (!book) return;
+      const pg = item.dataset.page ? Number(item.dataset.page) : null;
+      if (pg) openToPage = pg;
+      document.getElementById('librarySearch').value = '';
+      renderBookshelf();
+      const el = document.querySelector('.book[data-bid="' + bid + '"]');
+      openBook(book, el || item);
+    });
+  });
+}
+
+/* 검색 / 백업 / 복원 이벤트 */
+(() => {
+  const si = document.getElementById('librarySearch');
+  let t;
+  si.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => searchLibrary(si.value), 220); });
+  si.addEventListener('keydown', e => { if (e.key === 'Escape') { si.value = ''; searchLibrary(''); } });
+  document.getElementById('backupBtn').addEventListener('click', exportLibrary);
+  document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('restoreInput').click());
+  document.getElementById('restoreInput').addEventListener('change', e => { importLibrary(e.target.files[0]); e.target.value = ''; });
+})();
+
+/* =============================================================
    Boot
    ============================================================= */
 (async () => {
@@ -2064,11 +2320,16 @@ function showToast(msg) {
       }
       shelfLayout = distributeShelves(baseIds, SHELF_COUNT);
     }
+
+    // 진행률 / 본문 색인 로드
+    try { const pr = await idbGet('meta', 'progress'); progressMap = (pr && pr.map) || {}; } catch (_) {}
+    try { const fr = await idbGet('meta', 'fulltext'); fulltextMap = (fr && fr.map) || {}; } catch (_) {}
   } catch (err) {
     console.error('DB 초기화 실패:', err);
     showToast('⚠️ ' + (err.message || '저장소를 열 수 없습니다'));
   }
   renderBookshelf();
+  setTimeout(() => { if (books.length) buildFulltextIndex(); }, 1500);   // 백그라운드 본문 색인
 })();
 
 // 창 크기 변경 시 선반을 다시 채워 폭에 맞춤 (디바운스)
