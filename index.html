@@ -1024,10 +1024,12 @@ body {
     <button class="icon-btn" id="statsBtn" title="독서 통계">📊</button>
     <button class="icon-btn" id="backupBtn" title="라이브러리 백업(내보내기)">💾</button>
     <button class="icon-btn" id="restoreBtn" title="백업 복원(불러오기)">📥</button>
+    <button class="icon-btn" id="fileAddBtn" title="PDF 파일 개별 추가" onclick="document.getElementById('fileInput').click()">📄</button>
     <button class="import-btn" onclick="document.getElementById('folderInput').click()">
       ＋ 폴더 추가
     </button>
     <input type="file" id="folderInput" webkitdirectory multiple>
+    <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple style="display:none">
     <input type="file" id="restoreInput" accept="application/json,.json" style="display:none">
   </div>
 </header>
@@ -1444,6 +1446,7 @@ function makeBookEl(book, shelfIdx) {
     el.classList.add('dragging');
   });
   el.addEventListener('dragover', ev => {
+    if (ev.dataTransfer.types && [...ev.dataTransfer.types].includes('Files')) return;  // 파일 드래그는 행이 처리
     ev.preventDefault();
     ev.dataTransfer.dropEffect = 'move';
     const rect  = el.getBoundingClientRect();
@@ -1453,6 +1456,7 @@ function makeBookEl(book, shelfIdx) {
     el.classList.toggle('insert-left',  !after);
   });
   el.addEventListener('drop', ev => {
+    if (ev.dataTransfer.files && ev.dataTransfer.files.length) return;  // 파일 업로드는 행이 처리
     ev.preventDefault();
     ev.stopPropagation();                     // 행(row) drop으로 전파 방지
     const after = el.classList.contains('insert-right');
@@ -1490,12 +1494,14 @@ function renderBookshelf() {
     // 책이 아닌 빈 공간에 드롭 → 그 선반 끝으로 이동
     row.addEventListener('dragover', ev => {
       ev.preventDefault();
-      ev.dataTransfer.dropEffect = 'move';
-      if (!ev.target.closest('.book')) { clearDropMarks(); row.classList.add('drop-target'); }
+      const isFile = ev.dataTransfer.types && [...ev.dataTransfer.types].includes('Files');
+      ev.dataTransfer.dropEffect = isFile ? 'copy' : 'move';
+      if (isFile || !ev.target.closest('.book')) { clearDropMarks(); row.classList.add('drop-target'); }
     });
     row.addEventListener('drop', ev => {
       ev.preventDefault();
       row.classList.remove('drop-target');
+      if (ev.dataTransfer.files && ev.dataTransfer.files.length) { addFilesToShelf(ev.dataTransfer.files, s); return; }  // 외부 PDF 업로드 → 이 선반
       if (!ev.target.closest('.book') && dragSrcId != null) moveBookTo(dragSrcId, s, null);
     });
 
@@ -1526,44 +1532,49 @@ function renderBookshelf() {
 }
 
 /* =============================================================
-   Folder import
+   파일 추가 (폴더 / 개별 파일 / 드래그 업로드)
+   shelfIdx 가 숫자면 그 선반에, null 이면 가장 적은 선반에 자동 배치
    ============================================================= */
-document.getElementById('folderInput').addEventListener('change', async e => {
-  const files = Array.from(e.target.files)
-    .filter(f => f.name.toLowerCase().endsWith('.pdf'));
-  e.target.value = '';
-
+async function addFilesToShelf(fileList, shelfIdx) {
+  const files = Array.from(fileList || []).filter(f => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf');
   if (!files.length) { showToast('PDF 파일을 찾을 수 없습니다'); return; }
-  showToast(`PDF ${files.length}개 처리 중...`);
+  showToast(`PDF ${files.length}개 처리 중…`);
 
   const existingNames = new Set(books.map(b => b.fileName));
   let added = 0;
-
   try {
     for (const file of files) {
       if (existingNames.has(file.name)) continue;
-      const record = {
-        name:      file.name,
-        fileName:  file.name,
-        blob:      file,        // File extends Blob — IDB stores it natively
-        createdAt: Date.now(),
-      };
+      existingNames.add(file.name);
+      const record = { name: file.name, fileName: file.name, blob: file, createdAt: Date.now() };
       const id = await idbAdd('books', record);
       books.push({ ...record, id });
+      if (shelfIdx != null && Array.isArray(shelfLayout[shelfIdx])) shelfLayout[shelfIdx].push(id);  // 지정 선반에 배치
       added++;
     }
   } catch (err) {
-    console.error('폴더 추가 실패:', err);
+    console.error('파일 추가 실패:', err);
     renderBookshelf();
     showToast('⚠️ ' + (err.message || '저장 중 오류가 발생했습니다'));
     return;
   }
-
+  if (shelfIdx != null) persistLayout();
   renderBookshelf();
   showToast(added > 0
-    ? `${added}권의 책이 추가되었습니다!`
-    : '이미 모두 추가된 파일입니다');
-});
+    ? `${added}권 추가됨` + (shelfIdx != null ? ` (Shelf ${shelfIdx + 1})` : '')
+    : '이미 추가된 파일입니다');
+}
+
+document.getElementById('folderInput').addEventListener('change', e => { addFilesToShelf(e.target.files, null); e.target.value = ''; });
+document.getElementById('fileInput').addEventListener('change',   e => { addFilesToShelf(e.target.files, null); e.target.value = ''; });
+
+/* 외부 파일을 페이지 아무 곳에 떨궈도 브라우저가 PDF를 열지 않도록 방지 + 드롭 표시 정리 */
+(() => {
+  const isFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  document.addEventListener('dragover', e => { if (isFiles(e)) e.preventDefault(); });
+  document.addEventListener('drop',     e => { if (isFiles(e)) e.preventDefault(); clearDropMarks(); });
+  document.addEventListener('dragleave', e => { if (!e.relatedTarget) clearDropMarks(); });
+})();
 
 /* =============================================================
    Delete Book (책 + 메모 + 대화 기록 일괄 삭제)
