@@ -599,6 +599,17 @@ body {
 .ask-sel-btn { position: fixed; z-index: 2500; display: none; background: linear-gradient(135deg,#7a5810,#c9a84c); color:#1a1008; border:none; border-radius:6px; padding:7px 12px; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.5); font-family: inherit; white-space: nowrap; }
 .ask-sel-btn:hover { background: linear-gradient(135deg,#c9a84c,#e8c870); }
 
+/* 문서 내 검색 바 */
+.pdf-find { position: absolute; top: 56px; right: 16px; z-index: 20; display: flex; align-items: center; gap: 6px; background: rgba(20,12,5,0.97); border: 1px solid var(--gold-dim); border-radius: 8px; padding: 6px 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+.pdf-find[hidden] { display: none; }
+#pdfFindInput { background: rgba(46,26,8,0.5); border: 1px solid var(--gold-dim); border-radius: 5px; color: var(--text); padding: 5px 9px; font-size: 12px; width: 150px; outline: none; font-family: inherit; }
+#pdfFindInput:focus { border-color: var(--gold); }
+.pdf-find-count { font-size: 11px; color: var(--text-mid); min-width: 40px; text-align: center; }
+.pdf-find-btn { background: rgba(201,168,76,0.1); border: 1px solid var(--gold-dim); border-radius: 5px; color: var(--gold); width: 26px; height: 26px; cursor: pointer; font-size: 11px; }
+.pdf-find-btn:hover { background: rgba(201,168,76,0.25); }
+.textLayer .find-hl { background: rgba(255,210,0,0.45); border-radius: 2px; }
+.textLayer .find-hl-cur { background: rgba(255,140,0,0.78); border-radius: 2px; }
+
 /* ===== PDF Panel ===== */
 .pdf-panel {
   flex: 1;
@@ -607,6 +618,7 @@ body {
   border-right: 1px solid rgba(201,168,76,0.18);
   background: var(--panel-bg);
   overflow: hidden;
+  position: relative;
 }
 
 .pdf-controls {
@@ -1097,7 +1109,15 @@ body {
           <button class="pdf-btn pdf-zoom-btn" id="zoomInBtn" title="확대" disabled>＋</button>
           <button class="pdf-btn" id="zoomFitBtn" title="너비 맞춤" disabled>맞춤</button>
           <button class="pdf-btn" id="readModeBtn" title="읽기 모드 (보통/세피아/야간)">☀️ 보통</button>
+          <button class="pdf-btn" id="findToggleBtn" title="문서 내 검색 (Ctrl+F)">🔎</button>
         </div>
+      </div>
+      <div class="pdf-find" id="pdfFind" hidden>
+        <input type="text" id="pdfFindInput" placeholder="문서에서 찾기…">
+        <span class="pdf-find-count" id="pdfFindCount">0/0</span>
+        <button class="pdf-find-btn" id="pdfFindPrev" title="이전">▲</button>
+        <button class="pdf-find-btn" id="pdfFindNext" title="다음">▼</button>
+        <button class="pdf-find-btn" id="pdfFindClose" title="닫기 (Esc)">✕</button>
       </div>
       <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
         <div class="pdf-msg" id="pdfMsg">책을 열면 PDF가 표시됩니다</div>
@@ -1732,6 +1752,7 @@ async function closeBook() {
   document.getElementById('pdfPage').style.display = 'none';
   document.getElementById('pdfTextLayer').innerHTML = '';
   if (window.hideAskSel) window.hideAskSel();
+  if (window.closeFind) window.closeFind();
 
   const msg = document.getElementById('pdfMsg');
   msg.style.display  = 'flex';
@@ -1778,6 +1799,7 @@ async function loadPDF(book) {
       cMapPacked: true,
     }).promise;
     totalPages = pdfDoc.numPages;
+    findDocPages = null;   // 새 문서 — 문서 내 검색 캐시 초기화
     const saved = progressMap[book.id];
     currentPage = (openToPage && openToPage >= 1 && openToPage <= totalPages) ? openToPage
                 : (saved && saved.page >= 1 && saved.page <= totalPages)      ? saved.page
@@ -1848,6 +1870,7 @@ async function renderTextLayerFor(page, vp) {
     const task = pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp });
     await Promise.race([ task.promise, new Promise((_, rej) => setTimeout(() => rej(new Error('tl-timeout')), 4000)) ]);
   } catch (e) { /* 텍스트 없음/지연 — 선택 비활성, 페이지 표시는 정상 */ }
+  if (findQuery) highlightFind();   // 검색 중이면 새 페이지에도 하이라이트
 }
 
 function syncControls() {
@@ -2240,9 +2263,14 @@ document.getElementById('chatInput').addEventListener('input', function () {
 document.addEventListener('keydown', e => {
   const ws = document.getElementById('workspaceOverlay');
   if (ws.style.display === 'none' || !ws.style.display) return;
-  if (e.key === 'Escape') { closeBook(); return; }
+  if (e.key === 'Escape') {
+    const fb = document.getElementById('pdfFind');
+    if (fb && !fb.hidden) { if (window.closeFind) window.closeFind(); return; }
+    closeBook(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); if (window.openFind) window.openFind(); return; }
   const ae = document.activeElement;
-  if (ae === document.getElementById('memoTextarea') || ae === document.getElementById('chatInput')) return;
+  if (ae === document.getElementById('memoTextarea') || ae === document.getElementById('chatInput') || ae === document.getElementById('pdfFindInput')) return;
   if (e.key === 'ArrowLeft')  changePage(-1);
   if (e.key === 'ArrowRight') changePage(1);
 });
@@ -2736,6 +2764,82 @@ function renderStats(s) {
     const input = document.getElementById('chatInput');
     input.value = `다음 부분을 설명해줘:\n"${t}"`;
     sendChat();
+  });
+})();
+
+/* =============================================================
+   PDF 문서 내 검색 (현재 PDF에서 찾기)
+   ============================================================= */
+let findDocPages = null;   // 현재 책 페이지별 텍스트 (무제한)
+let findMatches  = [];     // 발생마다 페이지 번호 (length = 총 발생 수)
+let findIdx      = -1;
+let findQuery    = '';
+
+async function ensureFindPages() {
+  if (findDocPages || !pdfDoc) return findDocPages;
+  const pages = [];
+  for (let p = 1; p <= totalPages; p++) {
+    try { const pg = await pdfDoc.getPage(p); const tc = await pg.getTextContent(); pages.push(tc.items.map(i => i.str).join(' ')); }
+    catch (e) { pages.push(''); }
+  }
+  findDocPages = pages;
+  return pages;
+}
+function clearFindHl() {
+  document.querySelectorAll('#pdfTextLayer .find-hl, #pdfTextLayer .find-hl-cur')
+    .forEach(s => s.classList.remove('find-hl', 'find-hl-cur'));
+}
+function highlightFind() {
+  clearFindHl();
+  const q = findQuery.toLowerCase();
+  if (!q) return;
+  let first = null;
+  document.querySelectorAll('#pdfTextLayer span').forEach(s => {
+    if (s.textContent && s.textContent.toLowerCase().includes(q)) { s.classList.add('find-hl'); if (!first) first = s; }
+  });
+  if (first) { first.classList.add('find-hl-cur'); first.scrollIntoView({ block: 'center' }); }
+}
+async function runFind(q) {
+  findQuery = (q || '').trim();
+  const countEl = document.getElementById('pdfFindCount');
+  if (!findQuery || !pdfDoc) { findMatches = []; findIdx = -1; countEl.textContent = '0/0'; clearFindHl(); return; }
+  const pages = await ensureFindPages();
+  const ql = findQuery.toLowerCase();
+  findMatches = [];
+  for (let p = 0; p < pages.length; p++) {
+    const t = pages[p].toLowerCase();
+    let i = t.indexOf(ql);
+    while (i !== -1) { findMatches.push(p + 1); i = t.indexOf(ql, i + ql.length); }
+  }
+  if (!findMatches.length) { findIdx = -1; countEl.textContent = '없음'; clearFindHl(); return; }
+  findIdx = findMatches.findIndex(pg => pg >= currentPage);
+  if (findIdx === -1) findIdx = 0;
+  countEl.textContent = (findIdx + 1) + '/' + findMatches.length;
+  const page = findMatches[findIdx];
+  if (page !== currentPage) await renderPage(page); else highlightFind();
+}
+async function gotoFindMatch(delta) {
+  if (!findMatches.length) return;
+  findIdx = (findIdx + delta + findMatches.length) % findMatches.length;
+  document.getElementById('pdfFindCount').textContent = (findIdx + 1) + '/' + findMatches.length;
+  const page = findMatches[findIdx];
+  if (page !== currentPage) await renderPage(page); else highlightFind();
+}
+(() => {
+  const bar = document.getElementById('pdfFind');
+  const input = document.getElementById('pdfFindInput');
+  function open()  { bar.hidden = false; input.focus(); input.select(); if (input.value.trim()) runFind(input.value); }
+  function close() { bar.hidden = true; findQuery = ''; findMatches = []; findIdx = -1; input.value = ''; document.getElementById('pdfFindCount').textContent = '0/0'; clearFindHl(); }
+  window.openFind = open; window.closeFind = close;
+  document.getElementById('findToggleBtn').addEventListener('click', () => bar.hidden ? open() : close());
+  document.getElementById('pdfFindClose').addEventListener('click', close);
+  document.getElementById('pdfFindNext').addEventListener('click', () => gotoFindMatch(1));
+  document.getElementById('pdfFindPrev').addEventListener('click', () => gotoFindMatch(-1));
+  let t;
+  input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => runFind(input.value), 250); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); gotoFindMatch(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
   });
 })();
 
