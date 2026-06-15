@@ -2793,10 +2793,9 @@ function highlightFind() {
   clearFindHl();
   if (!findQuery) return;
   const ql = findQuery.toLowerCase();
-  const cur = findMatches[findIdx];
+  const curOcc = findMatches[findIdx] ? findMatches[findIdx].occ : -1;   // 현재 페이지에서 몇 번째 일치인지
   const spans = [...document.querySelectorAll('#pdfTextLayer span')];
   if (!spans.length) return;
-  // 페이지 span들을 findDocPages와 동일하게 ' '로 이어 붙이고 (오프셋 일치) span 범위 매핑
   let text = ''; const map = [];
   spans.forEach((s, idx) => {
     if (idx > 0) text += ' ';
@@ -2805,20 +2804,18 @@ function highlightFind() {
     text += t;
   });
   const lower = text.toLowerCase();
-  let curSpan = null, firstSpan = null;
-  let i = lower.indexOf(ql);
+  let curSpan = null;
+  let i = lower.indexOf(ql), occ = 0;
   while (i !== -1) {
-    const isCur = cur && cur.start === i;          // 현재 일치 위치
+    const isCur = (occ === curOcc);                // 절대 오프셋이 아닌 '발생 순번'으로 현재 판정
     for (const m of map) {
-      if (m.b <= i || m.a >= i + ql.length) continue;   // [i, i+len) 과 겹치는 span만
+      if (m.b <= i || m.a >= i + ql.length) continue;   // 일치 구간과 겹치는 span 표시
       m.s.classList.add(isCur ? 'find-hl-cur' : 'find-hl');
-      if (!firstSpan) firstSpan = m.s;
       if (isCur && !curSpan) curSpan = m.s;
     }
-    i = lower.indexOf(ql, i + ql.length);
+    occ++; i = lower.indexOf(ql, i + ql.length);
   }
-  const target = curSpan || firstSpan;             // 오프셋 불일치 시 첫 일치로 폴백
-  if (target) { if (!curSpan) target.classList.add('find-hl-cur'); target.scrollIntoView({ block: 'center' }); }
+  if (curSpan) curSpan.scrollIntoView({ block: 'center' });
 }
 async function runFind(q) {
   findQuery = (q || '').trim();
@@ -2829,8 +2826,8 @@ async function runFind(q) {
   findMatches = [];
   for (let p = 0; p < pages.length; p++) {
     const t = pages[p].toLowerCase();
-    let i = t.indexOf(ql);
-    while (i !== -1) { findMatches.push({ page: p + 1, start: i }); i = t.indexOf(ql, i + ql.length); }
+    let i = t.indexOf(ql), occ = 0;
+    while (i !== -1) { findMatches.push({ page: p + 1, occ: occ++ }); i = t.indexOf(ql, i + ql.length); }
   }
   if (!findMatches.length) { findIdx = -1; countEl.textContent = '없음'; clearFindHl(); return; }
   findIdx = findMatches.findIndex(m => m.page >= currentPage);
