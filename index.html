@@ -2791,13 +2791,34 @@ function clearFindHl() {
 }
 function highlightFind() {
   clearFindHl();
-  const q = findQuery.toLowerCase();
-  if (!q) return;
-  let first = null;
-  document.querySelectorAll('#pdfTextLayer span').forEach(s => {
-    if (s.textContent && s.textContent.toLowerCase().includes(q)) { s.classList.add('find-hl'); if (!first) first = s; }
+  if (!findQuery) return;
+  const ql = findQuery.toLowerCase();
+  const cur = findMatches[findIdx];
+  const spans = [...document.querySelectorAll('#pdfTextLayer span')];
+  if (!spans.length) return;
+  // 페이지 span들을 findDocPages와 동일하게 ' '로 이어 붙이고 (오프셋 일치) span 범위 매핑
+  let text = ''; const map = [];
+  spans.forEach((s, idx) => {
+    if (idx > 0) text += ' ';
+    const t = s.textContent || '';
+    map.push({ s, a: text.length, b: text.length + t.length });
+    text += t;
   });
-  if (first) { first.classList.add('find-hl-cur'); first.scrollIntoView({ block: 'center' }); }
+  const lower = text.toLowerCase();
+  let curSpan = null, firstSpan = null;
+  let i = lower.indexOf(ql);
+  while (i !== -1) {
+    const isCur = cur && cur.start === i;          // 현재 일치 위치
+    for (const m of map) {
+      if (m.b <= i || m.a >= i + ql.length) continue;   // [i, i+len) 과 겹치는 span만
+      m.s.classList.add(isCur ? 'find-hl-cur' : 'find-hl');
+      if (!firstSpan) firstSpan = m.s;
+      if (isCur && !curSpan) curSpan = m.s;
+    }
+    i = lower.indexOf(ql, i + ql.length);
+  }
+  const target = curSpan || firstSpan;             // 오프셋 불일치 시 첫 일치로 폴백
+  if (target) { if (!curSpan) target.classList.add('find-hl-cur'); target.scrollIntoView({ block: 'center' }); }
 }
 async function runFind(q) {
   findQuery = (q || '').trim();
@@ -2809,20 +2830,20 @@ async function runFind(q) {
   for (let p = 0; p < pages.length; p++) {
     const t = pages[p].toLowerCase();
     let i = t.indexOf(ql);
-    while (i !== -1) { findMatches.push(p + 1); i = t.indexOf(ql, i + ql.length); }
+    while (i !== -1) { findMatches.push({ page: p + 1, start: i }); i = t.indexOf(ql, i + ql.length); }
   }
   if (!findMatches.length) { findIdx = -1; countEl.textContent = '없음'; clearFindHl(); return; }
-  findIdx = findMatches.findIndex(pg => pg >= currentPage);
+  findIdx = findMatches.findIndex(m => m.page >= currentPage);
   if (findIdx === -1) findIdx = 0;
   countEl.textContent = (findIdx + 1) + '/' + findMatches.length;
-  const page = findMatches[findIdx];
+  const page = findMatches[findIdx].page;
   if (page !== currentPage) await renderPage(page); else highlightFind();
 }
 async function gotoFindMatch(delta) {
   if (!findMatches.length) return;
   findIdx = (findIdx + delta + findMatches.length) % findMatches.length;
   document.getElementById('pdfFindCount').textContent = (findIdx + 1) + '/' + findMatches.length;
-  const page = findMatches[findIdx];
+  const page = findMatches[findIdx].page;
   if (page !== currentPage) await renderPage(page); else highlightFind();
 }
 (() => {
