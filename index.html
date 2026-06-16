@@ -596,8 +596,9 @@ body {
 .textLayer span, .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
 .textLayer ::selection { background: rgba(120,150,210,0.5); }
 .textLayer ::-moz-selection { background: rgba(120,150,210,0.5); }
-.ask-sel-btn { position: fixed; z-index: 2500; display: none; background: linear-gradient(135deg,#7a5810,#c9a84c); color:#1a1008; border:none; border-radius:6px; padding:7px 12px; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.5); font-family: inherit; white-space: nowrap; }
-.ask-sel-btn:hover { background: linear-gradient(135deg,#c9a84c,#e8c870); }
+.sel-toolbar { position: fixed; z-index: 2500; display: none; gap: 5px; }
+.sel-btn { background: linear-gradient(135deg,#7a5810,#c9a84c); color:#1a1008; border:none; border-radius:6px; padding:7px 12px; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.5); font-family: inherit; white-space: nowrap; }
+.sel-btn:hover { background: linear-gradient(135deg,#c9a84c,#e8c870); }
 
 /* 문서 내 검색 바 */
 .pdf-find { position: absolute; top: 56px; right: 16px; z-index: 20; display: flex; align-items: center; gap: 6px; background: rgba(20,12,5,0.97); border: 1px solid var(--gold-dim); border-radius: 8px; padding: 6px 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
@@ -1126,7 +1127,10 @@ body {
           <canvas id="pdfCanvas"></canvas>
           <div class="textLayer" id="pdfTextLayer"></div>
         </div>
-        <button class="ask-sel-btn" id="askSelBtn">✨ 이 부분 질문</button>
+        <div class="sel-toolbar" id="selToolbar">
+          <button class="sel-btn" id="askSelBtn">✨ 질문</button>
+          <button class="sel-btn" id="translateSelBtn">🌐 번역</button>
+        </div>
       </div>
     </div>
 
@@ -2745,13 +2749,15 @@ function renderStats(s) {
 })();
 
 /* =============================================================
-   PDF 텍스트 선택 → AI에 질문
+   PDF 텍스트 선택 → AI 질문 / 번역
    ============================================================= */
 (() => {
-  const btn = document.getElementById('askSelBtn');
-  const tl  = document.getElementById('pdfTextLayer');
+  const toolbar = document.getElementById('selToolbar');
+  const askBtn  = document.getElementById('askSelBtn');
+  const transBtn = document.getElementById('translateSelBtn');
+  const tl = document.getElementById('pdfTextLayer');
   let selText = '';
-  function hide() { btn.style.display = 'none'; selText = ''; }
+  function hide() { toolbar.style.display = 'none'; selText = ''; }
   window.hideAskSel = hide;
 
   function onSelect() {
@@ -2762,22 +2768,23 @@ function renderStats(s) {
     if (!tl.contains(range.commonAncestorContainer)) { hide(); return; }   // 텍스트 레이어 내 선택만
     selText = text;
     const r = range.getBoundingClientRect();
-    btn.style.display = 'block';
-    btn.style.left = Math.min(window.innerWidth - 130, Math.max(8, r.left + r.width / 2 - 60)) + 'px';
-    btn.style.top  = Math.max(8, r.top - 42) + 'px';
+    toolbar.style.display = 'flex';
+    toolbar.style.left = Math.min(window.innerWidth - 175, Math.max(8, r.left + r.width / 2 - 82)) + 'px';
+    toolbar.style.top  = Math.max(8, r.top - 42) + 'px';
   }
-  document.addEventListener('mouseup', () => setTimeout(onSelect, 10));
-  btn.addEventListener('mousedown', e => e.preventDefault());   // 클릭 시 선택 해제 방지
-  btn.addEventListener('click', () => {
-    const t = selText.slice(0, 1000);
+  function sendSel(makePrompt) {
+    const t = selText.slice(0, 1500);
     hide();
     try { window.getSelection().removeAllRanges(); } catch (e) {}
     if (!t || !currentBook) return;
     switchPane('chat');
-    const input = document.getElementById('chatInput');
-    input.value = `다음 부분을 설명해줘:\n"${t}"`;
+    document.getElementById('chatInput').value = makePrompt(t);
     sendChat();
-  });
+  }
+  document.addEventListener('mouseup', () => setTimeout(onSelect, 10));
+  toolbar.addEventListener('mousedown', e => e.preventDefault());   // 클릭 시 선택 해제 방지
+  askBtn.addEventListener('click', () => sendSel(t => `다음 부분을 설명해줘:\n"${t}"`));
+  transBtn.addEventListener('click', () => sendSel(t => `다음 내용을 번역해줘. 영어 등 외국어면 한국어로, 한국어면 영어로 자연스럽게 번역하고 번역문만 보여줘:\n"${t}"`));
 })();
 
 /* =============================================================
