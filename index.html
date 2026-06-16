@@ -2199,19 +2199,15 @@ async function getChatDocText() {
   return chatDocText;
 }
 
-async function sendChat() {
+// 공용 요청 처리 — 사용자 말풍선·typing·에러·저장 UI 흐름을 담당.
+// fetcher()는 어시스턴트 답변 텍스트를 반환하거나 throw 한다.
+async function runChatRequest(userContent, fetcher) {
   if (chatBusy || !pdfDoc || !currentBook) return;
-  const input = document.getElementById('chatInput');
-  const q = input.value.trim();
-  if (!q) return;
-
   chatBusy = true;
   const sendBtn = document.getElementById('chatSendBtn');
   sendBtn.disabled = true;
-  input.value = '';
-  input.style.height = 'auto';
 
-  chatMessages.push({ role: 'user', content: q });
+  chatMessages.push({ role: 'user', content: userContent });
   renderChat();
 
   const box = document.getElementById('chatMessages');
@@ -2222,6 +2218,29 @@ async function sendChat() {
   box.scrollTop = box.scrollHeight;
 
   try {
+    const reply = await fetcher();
+    chatMessages.push({ role: 'assistant', content: reply });
+  } catch (err) {
+    chatMessages.push({ role: 'assistant', content: '⚠️ ' + (err.message || '오류'), error: true });
+  } finally {
+    typing.remove();
+    renderChat();
+    await saveChat();
+    chatBusy = false;
+    sendBtn.disabled = false;
+    document.getElementById('chatInput').focus();
+  }
+}
+
+async function sendChat() {
+  if (chatBusy || !pdfDoc || !currentBook) return;
+  const input = document.getElementById('chatInput');
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = '';
+  input.style.height = 'auto';
+
+  await runChatRequest(q, async () => {
     const docText = await getChatDocText();
     if (!docText || docText.length < 20) {
       throw new Error('이 문서에서 추출할 텍스트가 거의 없어 답변할 수 없습니다. (스캔본·이미지 PDF)');
@@ -2249,18 +2268,37 @@ async function sendChat() {
       if (resp.status === 404 || resp.status === 405) throw new Error('AI 챗 API(/api/chat)를 찾을 수 없습니다.\n정적 서버 대신 server.js로 실행해야 합니다 (npm start, 3000).');
       throw new Error((data && data.error) ? data.error : ('HTTP ' + resp.status));
     }
-    const reply = (data && data.reply) ? data.reply : '응답을 받지 못했습니다.';
-    chatMessages.push({ role: 'assistant', content: reply });
-  } catch (err) {
-    chatMessages.push({ role: 'assistant', content: '⚠️ ' + (err.message || '오류'), error: true });
-  } finally {
-    typing.remove();
-    renderChat();
-    await saveChat();
-    chatBusy = false;
-    sendBtn.disabled = false;
-    input.focus();
-  }
+    return (data && data.reply) ? data.reply : '응답을 받지 못했습니다.';
+  });
+}
+
+// 선택 텍스트 번역 — 문서 제약 없는 전용 /api/translate 사용
+async function sendTranslate(text) {
+  const t = (text || '').slice(0, 1500);
+  if (!t) return;
+  switchPane('chat');
+
+  await runChatRequest('🌐 번역 요청\n"' + t + '"', async () => {
+    let resp;
+    try {
+      resp = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: t })
+      });
+    } catch (e) {
+      throw new Error('번역 서버에 연결할 수 없습니다.\nserver.js 실행 후( npm start ) http://localhost:3000 에서 열어주세요.');
+    }
+
+    let data = null;
+    try { data = await resp.json(); } catch (e) {}
+    if (!resp.ok) {
+      if (resp.status === 503) throw new Error('서버에 GROQ_API_KEY가 설정되지 않았습니다. (.env 확인)');
+      if (resp.status === 404 || resp.status === 405) throw new Error('번역 API(/api/translate)를 찾을 수 없습니다.\n정적 서버 대신 server.js로 실행해야 합니다 (npm start, 3000).');
+      throw new Error((data && data.error) ? data.error : ('HTTP ' + resp.status));
+    }
+    return (data && data.translation) ? data.translation : '번역 결과를 받지 못했습니다.';
+  });
 }
 
 document.getElementById('tabMemoBtn').addEventListener('click', () => switchPane('memo'));
@@ -2772,19 +2810,27 @@ function renderStats(s) {
     toolbar.style.left = Math.min(window.innerWidth - 175, Math.max(8, r.left + r.width / 2 - 82)) + 'px';
     toolbar.style.top  = Math.max(8, r.top - 42) + 'px';
   }
-  function sendSel(makePrompt) {
+  // 버튼 클릭 시: 선택 텍스트를 확보하고 툴바·선택영역을 정리해 반환
+  function takeSel() {
     const t = selText.slice(0, 1500);
     hide();
     try { window.getSelection().removeAllRanges(); } catch (e) {}
-    if (!t || !currentBook) return;
-    switchPane('chat');
-    document.getElementById('chatInput').value = makePrompt(t);
-    sendChat();
+    return (t && currentBook) ? t : '';
   }
   document.addEventListener('mouseup', () => setTimeout(onSelect, 10));
   toolbar.addEventListener('mousedown', e => e.preventDefault());   // 클릭 시 선택 해제 방지
-  askBtn.addEventListener('click', () => sendSel(t => `다음 부분을 설명해줘:\n"${t}"`));
-  transBtn.addEventListener('click', () => sendSel(t => `다음 내용을 번역해줘. 영어 등 외국어면 한국어로, 한국어면 영어로 자연스럽게 번역하고 번역문만 보여줘:\n"${t}"`));
+  askBtn.addEventListener('click', () => {
+    const t = takeSel();
+    if (!t) return;
+    switchPane('chat');
+    document.getElementById('chatInput').value = `다음 부분을 설명해줘:\n"${t}"`;
+    sendChat();
+  });
+  transBtn.addEventListener('click', () => {
+    const t = takeSel();
+    if (!t) return;
+    sendTranslate(t);   // 문서 제약 없는 전용 번역 경로
+  });
 })();
 
 /* =============================================================
